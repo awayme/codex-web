@@ -22,11 +22,12 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci --include=dev --ignore-scripts \
-  && npm rebuild better-sqlite3
+  && npm rebuild better-sqlite3 node-pty
 
 COPY assets/ ./assets/
 COPY patches/ ./patches/
 COPY scripts/prepare_asar ./scripts/prepare_asar
+COPY scripts/smoke_test_terminal_pty.mjs ./scripts/smoke_test_terminal_pty.mjs
 COPY src/ ./src/
 COPY vite.browser.config.ts ./
 
@@ -34,6 +35,7 @@ RUN curl --fail --location --retry 3 --retry-delay 2 \
     --output /tmp/codex-app.zip \
     "https://persistent.oaistatic.com/codex-app-prod/ChatGPT-darwin-arm64-${CODEX_APP_VERSION}.zip" \
   && HOSTED_CODEX_APP_ZIP=/tmp/codex-app.zip npm run build \
+  && node scripts/smoke_test_terminal_pty.mjs \
   && rm -rf /tmp/codex-app.zip scratch/ChatGPT.app \
   && npm prune --omit=dev --ignore-scripts \
   && chmod -R a+rX /app

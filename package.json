@@ -32,6 +32,7 @@
     "better-sqlite3": "^12.9.0",
     "fastify": "^5.10.0",
     "glob": "^13.0.6",
+    "node-pty": "^1.1.0",
     "ws": "^8.21.1"
   },
   "devDependencies": {
