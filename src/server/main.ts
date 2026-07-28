@@ -400,11 +400,25 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   const app = Fastify({ logger: false });
   const websocketServer = new WebSocketServer({ noServer: true });
   const sockets = new Set<WebSocket>();
+  const startedAt = Date.now();
 
   await app.register(fastifyMultipart, {
     limits: {
       fileSize: Infinity,
     },
+  });
+
+  app.get("/__backend/healthz", async () => {
+    return {
+      status: "ok",
+      uptimeSeconds: Math.floor((Date.now() - startedAt) / 1_000),
+    };
+  });
+
+  app.get("/__backend/readyz", async () => {
+    return {
+      status: "ready",
+    };
   });
 
   const uploadRoot = await fs.mkdtemp(
@@ -447,8 +461,8 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
     root: path.resolve(__dirname, "../../scratch/asar/webview"),
     prefix: "/",
     cacheControl: false,
-    setHeaders(response, filePath) {
-      response.setHeader("Cache-Control", cacheControlForWebviewFile(filePath));
+    setHeaders(reply, filePath) {
+      reply.header("Cache-Control", cacheControlForWebviewFile(filePath));
     },
   });
 

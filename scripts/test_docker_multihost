@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+test_root="$(mktemp -d)"
+compose_project="codex-web-multihost-${RANDOM}"
+test_port="${CODEX_WEB_TEST_PORT:-18214}"
+test_image="${CODEX_WEB_TEST_IMAGE:-codex-web:local}"
+export CODEX_WEB_TEST_IMAGE="$test_image"
+
+cleanup() {
+  CODEX_WEB_TEST_SSH_DIR="$test_root" \
+  CODEX_WEB_TEST_PORT="$test_port" \
+    docker compose \
+      --project-name "$compose_project" \
+      --file "$repo_root/compose.test.yaml" \
+      down --volumes --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "$test_root"
+}
+trap cleanup EXIT
+
+if ! docker image inspect "$test_image" >/dev/null 2>&1; then
+  docker build --tag "$test_image" "$repo_root"
+fi
+
+ssh-keygen -q -t ed25519 -N "" -f "$test_root/id_ed25519"
+
+cat >"$test_root/config" <<'EOF'
+Host remote-alpha
+  HostName remote-alpha
+  User codex
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+
+Host remote-beta
+  HostName remote-beta
+  User codex
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+EOF
+
+# The production container runs as UID 10001. Make these disposable fixture
+# files readable through the bind mount; the entrypoint copies them into
+# ~/.ssh with mode 0600 before starting the server.
+chmod 755 "$test_root"
+chmod 644 \
+  "$test_root/config" \
+  "$test_root/id_ed25519" \
+  "$test_root/id_ed25519.pub"
+
+CODEX_WEB_TEST_SSH_DIR="$test_root" \
+CODEX_WEB_TEST_PORT="$test_port" \
+  docker compose \
+    --project-name "$compose_project" \
+    --file "$repo_root/compose.test.yaml" \
+    up --detach --build
+
+for _ in $(seq 1 90); do
+  if curl --fail --silent \
+    "http://127.0.0.1:${test_port}/__backend/readyz" >/dev/null; then
+    break
+  fi
+  sleep 2
+done
+
+curl --fail --silent \
+  "http://127.0.0.1:${test_port}/__backend/healthz" |
+  grep --quiet '"status":"ok"'
+
+container_home="$(
+  CODEX_WEB_TEST_SSH_DIR="$test_root" \
+  CODEX_WEB_TEST_PORT="$test_port" \
+    docker compose \
+      --project-name "$compose_project" \
+      --file "$repo_root/compose.test.yaml" \
+      exec -T web node -p 'require("node:os").homedir()'
+)"
+test "$container_home" = "/home/codex"
+
+CODEX_WEB_TEST_SSH_DIR="$test_root" \
+CODEX_WEB_TEST_PORT="$test_port" \
+  docker compose \
+    --project-name "$compose_project" \
+    --file "$repo_root/compose.test.yaml" \
+    exec -T web test -r /home/codex/.ssh/config
+
+for host in remote-alpha remote-beta; do
+  expected="${host#remote-}"
+  actual="$(
+    CODEX_WEB_TEST_SSH_DIR="$test_root" \
+    CODEX_WEB_TEST_PORT="$test_port" \
+      docker compose \
+        --project-name "$compose_project" \
+        --file "$repo_root/compose.test.yaml" \
+        exec -T web ssh -o BatchMode=yes "$host" cat /workspace/REMOTE_HOST
+  )"
+  test "$actual" = "$expected"
+
+  CODEX_WEB_TEST_SSH_DIR="$test_root" \
+  CODEX_WEB_TEST_PORT="$test_port" \
+    docker compose \
+      --project-name "$compose_project" \
+      --file "$repo_root/compose.test.yaml" \
+      exec -T web ssh -o BatchMode=yes "$host" \
+      codex app-server daemon start >/dev/null
+
+  CODEX_WEB_TEST_SSH_DIR="$test_root" \
+  CODEX_WEB_TEST_PORT="$test_port" \
+    docker compose \
+      --project-name "$compose_project" \
+      --file "$repo_root/compose.test.yaml" \
+      exec -T web ssh -o BatchMode=yes "$host" \
+      codex app-server daemon version |
+    grep --quiet '"cliVersion"'
+done
+
+echo "Multi-host Docker test passed."

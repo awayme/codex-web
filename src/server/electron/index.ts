@@ -1,3 +1,5 @@
+import { getElectronPath } from "./paths";
+
 type StubFunction = (...args: unknown[]) => unknown;
 type StubListener = (...args: unknown[]) => void;
 type StubMessagePort = {
@@ -301,6 +303,7 @@ function createIpcMainStub(): {
 let appReady = false;
 const commandLineSwitches = new Map<string, string>();
 const commandLineArguments: string[] = [];
+const appPathOverrides = new Map<string, string>();
 
 const appBase = {
   ...createEmitterStub("app"),
@@ -327,7 +330,7 @@ const appBase = {
   },
   getPath(name: string): string {
     log("app.getPath", [name]);
-    return process.cwd();
+    return appPathOverrides.get(name) ?? getElectronPath(name);
   },
   getAppMetrics(): unknown[] {
     log("app.getAppMetrics", []);
@@ -346,6 +349,7 @@ const appBase = {
   },
   setPath(name: string, value: string): void {
     log("app.setPath", [name, value]);
+    appPathOverrides.set(name, value);
   },
   setAppUserModelId(value: string): void {
     log("app.setAppUserModelId", [value]);

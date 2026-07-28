@@ -19,32 +19,34 @@
     "build:server": "cd src/server && tsc",
     "prepare:asar": "./scripts/prepare_asar",
     "preserver": "npm run build:server && npm run build:browser",
-    "server": "CODEX_CLI_PATH=$(which codex) node src/server/main.js"
+    "server": "CODEX_CLI_PATH=$(which codex) node src/server/main.js",
+    "test": "npm run build:server && node --test test/**/*.test.mjs && bash test/entrypoint.test.sh",
+    "test:docker:multihost": "./scripts/test_docker_multihost"
   },
   "repository": "git@github.com:0xcaff/codex-web.git",
   "author": "martin <martincharles07@gmail.com>",
   "license": "MIT",
   "dependencies": {
-    "@electron/asar": "^4.2.0",
     "@fastify/multipart": "^10.0.0",
-    "@fastify/static": "^9.1.1",
-    "@tanstack/react-query": "^5.100.9",
-    "@types/ws": "^8.18.1",
+    "@fastify/static": "^10.1.2",
     "better-sqlite3": "^12.9.0",
-    "fastify": "^5.8.5",
+    "fastify": "^5.10.0",
     "glob": "^13.0.6",
-    "prettier": "^3.8.2",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "sharp-cli": "^5.2.0",
-    "typescript": "^6.0.2",
-    "vite": "^8.0.8",
-    "ws": "^8.20.0"
+    "ws": "^8.21.1"
   },
   "devDependencies": {
+    "@electron/asar": "^4.2.1",
+    "@tanstack/react-query": "^5.101.4",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/ws": "^8.18.1",
     "electron": "41.2.0",
-    "http-server": "^14.1.1"
+    "http-server": "^14.1.1",
+    "prettier": "^3.9.6",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "sharp-cli": "^5.2.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.5"
   }
 }
