@@ -111,6 +111,7 @@ it read-only at `/run/secrets/codex-ssh`:
 docker run --rm \
   --name codex-web \
   --publish 127.0.0.1:8080:8080 \
+  --publish 127.0.0.1:1455:1455 \
   --volume codex-web-data:/data \
   --volume "$PWD/codex-ssh-secrets:/run/secrets/codex-ssh:ro" \
   codex-web:local
@@ -145,6 +146,24 @@ in the same upstream UI used by codex desktop.
 `/data` stores the browser host's connection settings and other Electron
 application state. keep it on a persistent volume. codex chats, repositories,
 credentials, skills, and tools remain on each selected remote machine.
+
+### sign in from a local docker container
+
+the desktop OAuth flow returns to `http://localhost:1455/auth/callback`. publish
+host port `1455` to the same container so the built-in callback bridge can
+forward that request to Codex's loopback-only login listener:
+
+```bash
+docker run --rm \
+  --name codex-web \
+  --publish 127.0.0.1:8080:8080 \
+  --publish 127.0.0.1:1455:1455 \
+  --volume codex-web-data:/data \
+  codex-web:local
+```
+
+keep the callback port bound to host loopback. `/data/codex` stores the local
+Codex authentication cache so login survives container recreation.
 
 ### local multi-host integration test
 

@@ -17,7 +17,16 @@ CODEX_WEB_DATA_DIR="$test_root/data" \
 CODEX_WEB_PREPARE_ONLY=1 \
   bash docker/entrypoint.sh
 
-test "$(stat -c '%a' "$test_root/home/.ssh")" = "700"
-test "$(stat -c '%a' "$test_root/home/.ssh/config")" = "600"
-test "$(stat -c '%a' "$test_root/home/.ssh/id_ed25519")" = "600"
+file_mode() {
+  if stat -c '%a' "$1" >/dev/null 2>&1; then
+    stat -c '%a' "$1"
+  else
+    stat -f '%Lp' "$1"
+  fi
+}
+
+test "$(file_mode "$test_root/home/.ssh")" = "700"
+test "$(file_mode "$test_root/home/.ssh/config")" = "600"
+test "$(file_mode "$test_root/home/.ssh/id_ed25519")" = "600"
+test -d "$test_root/data/codex"
 test -d "$test_root/data/session"

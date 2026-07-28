@@ -553,6 +553,7 @@ export const ipcRenderer = {
 
       if (isOpenInBrowserMessage(args[0])) {
         window.open(args[0].url, "_blank", "noopener,noreferrer");
+        return Promise.resolve(undefined);
       }
 
       if (isLocalFilePickerMessage(args[0])) {

@@ -59,9 +59,13 @@ WORKDIR /app
 
 COPY --from=builder /app /app
 COPY docker/entrypoint.sh /usr/local/bin/codex-web-entrypoint
+COPY docker/oauth-callback-bridge.mjs /usr/local/lib/codex-web/oauth-callback-bridge.mjs
 
 ENV CODEX_CLI_PATH=/usr/local/bin/codex \
+  CODEX_HOME=/data/codex \
   CODEX_SSH_SOURCE_DIR=/run/secrets/codex-ssh \
+  CODEX_WEB_OAUTH_CALLBACK_BRIDGE=1 \
+  CODEX_WEB_OAUTH_CALLBACK_PORT=1455 \
   CODEX_WEB_DATA_DIR=/data \
   CODEX_WEB_HOST=0.0.0.0 \
   HOME=/home/codex \
@@ -70,7 +74,7 @@ ENV CODEX_CLI_PATH=/usr/local/bin/codex \
 
 USER codex
 
-EXPOSE 8080
+EXPOSE 8080 1455
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \

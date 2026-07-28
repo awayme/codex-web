@@ -2,16 +2,20 @@
 set -euo pipefail
 
 data_dir="${CODEX_WEB_DATA_DIR:-/data}"
+codex_home="${CODEX_HOME:-$data_dir/codex}"
 ssh_source_dir="${CODEX_SSH_SOURCE_DIR:-/run/secrets/codex-ssh}"
 ssh_target_dir="${HOME}/.ssh"
 
 install -d -m 700 \
   "$data_dir" \
   "$data_dir/cache" \
+  "$codex_home" \
   "$data_dir/crash-dumps" \
   "$data_dir/logs" \
   "$data_dir/session" \
   "$ssh_target_dir"
+
+export CODEX_HOME="$codex_home"
 
 if [[ -d "$ssh_source_dir" ]]; then
   shopt -s nullglob
@@ -27,6 +31,10 @@ fi
 
 if [[ "${CODEX_WEB_PREPARE_ONLY:-0}" == "1" ]]; then
   exit 0
+fi
+
+if [[ "${CODEX_WEB_OAUTH_CALLBACK_BRIDGE:-1}" == "1" ]]; then
+  node /usr/local/lib/codex-web/oauth-callback-bridge.mjs &
 fi
 
 exec node /app/src/server/main.js \
