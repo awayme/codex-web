@@ -189,8 +189,12 @@ the app's long-lived WebSocket does not block its static assets.
 Cloud Storage FUSE is not POSIX compliant and does not support file locking.
 Codex uses Unix sockets and SQLite, so its runtime home and Electron state use
 the Cloud Run instance's local `/tmp` filesystem instead of the bucket. `/data`
-remains a persistent user-files mount; authentication and SSH configuration are
-restored from Secret Manager whenever an instance starts.
+remains a persistent user-files mount. The container safely writes immutable
+rolling snapshots of durable Codex and Electron state under
+`/data/codex-web-state.tar.snapshots/` every 15 seconds and restores the newest
+valid snapshot before a replacement instance starts. This includes connection
+choices, custom instructions, memory state, and app preferences. Authentication
+and SSH configuration are restored separately from Secret Manager.
 
 the script seeds Codex authentication from the local `codex-web` container and
 packages the files in `~/.config/codex-web/ssh` into Secret Manager. Cloud Run

@@ -17,6 +17,10 @@ install -d -m 700 \
 
 export CODEX_HOME="$codex_home"
 
+if [[ -n "${CODEX_WEB_STATE_BACKUP_FILE:-}" ]]; then
+  node /usr/local/lib/codex-web/state-sync.mjs restore
+fi
+
 if [[ -d "$ssh_source_dir" ]]; then
   shopt -s nullglob
   ssh_source_files=("$ssh_source_dir"/*)
@@ -31,6 +35,10 @@ fi
 
 if [[ "${CODEX_WEB_PREPARE_ONLY:-0}" == "1" ]]; then
   exit 0
+fi
+
+if [[ -n "${CODEX_WEB_STATE_BACKUP_FILE:-}" ]]; then
+  node /usr/local/lib/codex-web/state-sync.mjs watch &
 fi
 
 if [[ "${CODEX_WEB_OAUTH_CALLBACK_BRIDGE:-1}" == "1" ]]; then

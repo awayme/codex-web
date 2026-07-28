@@ -151,8 +151,9 @@ The first deployment can take several minutes. The helper:
 7. mounts the Cloud Storage bucket at `/data`;
 8. keeps Codex's socket and SQLite runtime state on the instance-local
    filesystem;
-9. deploys an IAP-protected Cloud Run service; and
-10. grants the active Google account access through IAP.
+9. snapshots durable Codex and Electron state safely into the bucket;
+10. deploys an IAP-protected Cloud Run service; and
+11. grants the active Google account access through IAP.
 
 At completion, it prints the Cloud Run URL and bucket name.
 
@@ -184,9 +185,21 @@ The GCS bucket is mounted at `/data` for persistent user files. Codex runtime
 state uses `/tmp/codex-home` and Electron state uses `/tmp/codex-web` because
 both contain Unix sockets and SQLite databases, which are not compatible with
 Cloud Storage FUSE. The helper restores OpenAI authentication and SSH
-configuration from Secret Manager on every instance start. Runtime history and
-UI preferences can be lost if Cloud Run replaces the instance; files written
-to `/data` persist.
+configuration from Secret Manager on every instance start.
+
+Codex Web safely snapshots both state directories into immutable archives under
+`/data/codex-web-state.tar.snapshots/` every 15 seconds and attempts a final
+snapshot on shutdown. It retains the four newest snapshots and restores the
+newest valid one. SQLite databases are copied with SQLite's online backup API;
+ordinary settings files are copied normally. Caches, sockets, temporary files,
+lock files, and `auth.json` are excluded. The archive is restored before a
+replacement instance starts the app.
+
+This preserves saved SSH connections and auto-connect choices, custom
+instructions, memory configuration and data, app preferences, and other
+durable Codex settings. A crash can lose changes made since the most recent
+15-second snapshot, but it cannot expose a live SQLite database to Cloud
+Storage FUSE.
 
 ## Override deployment settings
 
@@ -325,10 +338,12 @@ database backend. Codex Web therefore keeps Codex and Electron runtime state on
 the instance-local filesystem while exposing the bucket at `/data` for ordinary
 user files.
 
-This configuration is intended for a personal instance. If durable Codex
-history and UI state across instance replacement are required, use a Compute
-Engine VM with a persistent disk or another POSIX filesystem instead of Cloud
-Run with a GCS mount.
+Do not point `CODEX_HOME` or `CODEX_WEB_DATA_DIR` directly at the GCS mount.
+Both trees contain files that require POSIX filesystem behavior. The deployment
+helper instead sets `CODEX_WEB_STATE_BACKUP_FILE=/data/codex-web-state.tar`.
+The container uses that path as the base name for immutable rolling snapshots,
+so a new Cloud Run revision never reads an archive while the previous revision
+is replacing it.
 
 ## Troubleshooting
 

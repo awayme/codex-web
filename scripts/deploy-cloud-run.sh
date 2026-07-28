@@ -250,7 +250,7 @@ startup_command='set -euo pipefail; install -d -m 700 /tmp/codex-ssh /tmp/codex-
   --no-cpu-throttling \
   --no-allow-unauthenticated \
   --iap \
-  --set-env-vars=CODEX_HOME=/tmp/codex-home,CODEX_WEB_DATA_DIR=/tmp/codex-web,CODEX_WEB_OAUTH_CALLBACK_BRIDGE=0 \
+  --set-env-vars=CODEX_HOME=/tmp/codex-home,CODEX_WEB_DATA_DIR=/tmp/codex-web,CODEX_WEB_OAUTH_CALLBACK_BRIDGE=0,CODEX_WEB_STATE_BACKUP_FILE=/data/codex-web-state.tar \
   --set-secrets="/run/secrets/ssh-bundle/ssh.tar=codex-web-ssh-bundle:latest,/run/secrets/codex-auth/auth.json=codex-web-auth:latest" \
   --add-volume="name=codex-data,type=cloud-storage,bucket=${bucket},mount-options=uid=10001;gid=10001;dir-mode=700;file-mode=600;implicit-dirs=true" \
   --add-volume-mount=volume=codex-data,mount-path=/data \

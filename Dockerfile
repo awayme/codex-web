@@ -62,6 +62,7 @@ WORKDIR /app
 COPY --from=builder /app /app
 COPY docker/entrypoint.sh /usr/local/bin/codex-web-entrypoint
 COPY docker/oauth-callback-bridge.mjs /usr/local/lib/codex-web/oauth-callback-bridge.mjs
+COPY docker/state-sync.mjs /usr/local/lib/codex-web/state-sync.mjs
 
 ENV CODEX_CLI_PATH=/usr/local/bin/codex \
   CODEX_HOME=/data/codex \
