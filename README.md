@@ -167,6 +167,9 @@ Codex authentication cache so login survives container recreation.
 
 ### deploy to Google Cloud Run
 
+see [GoogleCloudRun.md](GoogleCloudRun.md) for the complete installation,
+security, remote-host, update, and troubleshooting guide.
+
 the deployment helper uses the currently authenticated `gcloud` account and
 asks which GCP project to deploy into:
 
@@ -175,16 +178,19 @@ asks which GCP project to deploy into:
 ```
 
 it creates or reuses Artifact Registry, Secret Manager secrets, a dedicated
-runtime service account, and a private Cloud Storage bucket. the bucket is
-mounted at `/data` using Cloud Storage FUSE with UID and GID `10001`, matching
-the non-root container user. the Cloud Run service is protected by IAP and is
-limited to a single always-allocated instance because the application keeps
-session and connection state.
+runtime service account, and a private Cloud Storage bucket. Google Cloud Build
+builds the production image natively on `linux/amd64`. the bucket is mounted at
+`/data` using Cloud Storage FUSE with UID and GID `10001`, matching the non-root
+container user. the Cloud Run service is protected by IAP and is limited to a
+single always-allocated instance because the application keeps session and
+connection state. that instance accepts multiple concurrent HTTP requests so
+the app's long-lived WebSocket does not block its static assets.
 
 Cloud Storage FUSE is not POSIX compliant and does not support file locking.
-Google recommends against using it as a database backend, so this layout is
-best treated as a single-instance deployment for personal use and tested
-against the exact Codex release before relying on it for durable state.
+Codex uses Unix sockets and SQLite, so its runtime home and Electron state use
+the Cloud Run instance's local `/tmp` filesystem instead of the bucket. `/data`
+remains a persistent user-files mount; authentication and SSH configuration are
+restored from Secret Manager whenever an instance starts.
 
 the script seeds Codex authentication from the local `codex-web` container and
 packages the files in `~/.config/codex-web/ssh` into Secret Manager. Cloud Run
@@ -200,8 +206,13 @@ CODEX_WEB_BUCKET=my-private-codex-data \
 ./scripts/deploy-cloud-run.sh
 ```
 
-the helper uses `gcloud beta run` only when the installed stable command does
-not yet expose Cloud Storage FUSE mount options.
+the helper uses `gcloud beta run` and `gcloud beta iap` only when the installed
+stable commands do not yet expose the required Cloud Storage or Cloud Run IAP
+options.
+
+set `CODEX_WEB_BUILD_MODE=local` to use local Docker Buildx instead of the
+default Google Cloud Build path. use `CODEX_WEB_BUILD_MODE=skip` only when the
+tagged image already exists and only the Cloud Run configuration has changed.
 
 ### local multi-host integration test
 
