@@ -462,6 +462,10 @@ running, then select **Settings > Connections > Control other devices > Set
 up > Authorize on chatgpt.com**. After the completion page reports success,
 stop the relay with `Ctrl-C`.
 
+If the browser blocks the automatic OpenAI tab, Codex Web displays a
+**Continue authorization** prompt. Select **Continue on auth.openai.com**;
+that direct click is permitted by browser popup rules.
+
 The relay only listens on Mac loopback ports `1455` and `1457`. It redirects
 the OAuth result back to the existing Cloud Run HTTPS origin in the URL
 fragment, which keeps the authorization code out of Cloud Run request logs.

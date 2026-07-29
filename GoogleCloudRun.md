@@ -534,6 +534,9 @@ other devices > Set up > Authorize on chatgpt.com**, then stop it with
 keeps the OpenAI-supported localhost OAuth redirect and returns the result to
 Cloud Run through HTTPS; it does not open another Cloud Run port.
 
+If the automatic OpenAI tab is blocked, select **Continue on
+auth.openai.com** in the **Continue authorization** prompt shown by Codex Web.
+
 The Linux container uses a P-256 software device key in `CODEX_HOME` in place
 of the macOS-only Keychain/Secure Enclave implementation. Its file permissions
 are owner-only and the existing state snapshot persists it, but it is not a

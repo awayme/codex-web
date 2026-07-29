@@ -203,6 +203,127 @@ function unimplemented(method: string): never {
   throw new Error(`[electron-stub] ${method} is not implemented`);
 }
 
+let externalLinkPrompt: HTMLElement | null = null;
+
+function showExternalLinkPrompt(url: string): void {
+  externalLinkPrompt?.remove();
+
+  const overlay = document.createElement("div");
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "codex-web-external-link-title");
+  Object.assign(overlay.style, {
+    alignItems: "center",
+    background: "rgb(0 0 0 / 45%)",
+    display: "flex",
+    inset: "0",
+    justifyContent: "center",
+    padding: "24px",
+    position: "fixed",
+    zIndex: "2147483647",
+  });
+
+  const card = document.createElement("div");
+  Object.assign(card.style, {
+    background: "Canvas",
+    border: "1px solid color-mix(in srgb, CanvasText 20%, transparent)",
+    borderRadius: "12px",
+    boxShadow: "0 18px 55px rgb(0 0 0 / 25%)",
+    color: "CanvasText",
+    font: "14px system-ui, sans-serif",
+    maxWidth: "420px",
+    padding: "24px",
+    width: "100%",
+  });
+
+  const title = document.createElement("h2");
+  title.id = "codex-web-external-link-title";
+  title.textContent = "Continue authorization";
+  Object.assign(title.style, {
+    fontSize: "18px",
+    margin: "0 0 8px",
+  });
+
+  const detail = document.createElement("p");
+  detail.textContent =
+    "Your browser blocked the automatic authorization tab. Continue with this direct link.";
+  Object.assign(detail.style, {
+    lineHeight: "1.5",
+    margin: "0 0 18px",
+    opacity: "0.75",
+  });
+
+  const actions = document.createElement("div");
+  Object.assign(actions.style, {
+    display: "flex",
+    gap: "10px",
+    justifyContent: "flex-end",
+  });
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "Cancel";
+  Object.assign(cancel.style, {
+    background: "transparent",
+    border: "1px solid color-mix(in srgb, CanvasText 25%, transparent)",
+    borderRadius: "8px",
+    color: "CanvasText",
+    cursor: "pointer",
+    padding: "9px 14px",
+  });
+  const dismiss = (): void => {
+    overlay.remove();
+    if (externalLinkPrompt === overlay) {
+      externalLinkPrompt = null;
+    }
+  };
+  cancel.addEventListener("click", dismiss);
+
+  const continueLink = document.createElement("a");
+  continueLink.href = url;
+  continueLink.target = "_blank";
+  continueLink.rel = "noopener noreferrer";
+  continueLink.textContent = "Continue on auth.openai.com";
+  Object.assign(continueLink.style, {
+    background: "#10a37f",
+    borderRadius: "8px",
+    color: "white",
+    padding: "10px 14px",
+    textDecoration: "none",
+  });
+  continueLink.addEventListener("click", () => {
+    window.setTimeout(dismiss, 0);
+  });
+
+  actions.append(cancel, continueLink);
+  card.append(title, detail, actions);
+  overlay.append(card);
+  overlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      dismiss();
+    }
+  });
+  document.body.append(overlay);
+  externalLinkPrompt = overlay;
+  continueLink.focus();
+}
+
+function openExternalUrl(url: string): void {
+  const parsedUrl = new URL(url);
+  if (!new Set(["http:", "https:"]).has(parsedUrl.protocol)) {
+    throw new Error(
+      `[electron-stub] refusing external URL protocol ${parsedUrl.protocol}`,
+    );
+  }
+
+  const popup = window.open(parsedUrl.toString(), "_blank");
+  if (popup) {
+    popup.opener = null;
+    return;
+  }
+  showExternalLinkPrompt(parsedUrl.toString());
+}
+
 export function emitRendererEvent(channel: string, args: unknown[]): void {
   const listeners = rendererListeners.get(channel);
   if (!listeners || listeners.size === 0) {
@@ -250,7 +371,7 @@ function handleIncomingMessage(message: MainToRendererMessage): void {
   }
 
   if (message.type === "open-external") {
-    window.open(message.url, "_blank", "noopener,noreferrer");
+    openExternalUrl(message.url);
     return;
   }
 
