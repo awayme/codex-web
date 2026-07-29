@@ -34,11 +34,18 @@ type IpcMainEvent = {
 };
 
 type IpcMainBridgeState = {
-  broadcastToRenderer?: (message: {
-    type: "ipc-main-event";
-    channel: string;
-    args: unknown[];
-  }) => void;
+  broadcastToRenderer?: (
+    message:
+      | {
+          type: "ipc-main-event";
+          channel: string;
+          args: unknown[];
+        }
+      | {
+          type: "open-external";
+          url: string;
+        },
+  ) => void;
   handleRendererInvoke?: (
     channel: string,
     args: unknown[],
@@ -756,6 +763,26 @@ const dialog = {
   },
 };
 
+const shell = {
+  async openExternal(url: string): Promise<void> {
+    const parsedUrl = new URL(url);
+    if (!new Set(["http:", "https:"]).has(parsedUrl.protocol)) {
+      throw new Error(
+        `Unsupported external URL protocol: ${parsedUrl.protocol}`,
+      );
+    }
+
+    const broadcastToRenderer = getIpcMainBridgeState().broadcastToRenderer;
+    if (!broadcastToRenderer) {
+      throw new Error("No browser renderer is connected");
+    }
+    broadcastToRenderer({
+      type: "open-external",
+      url: parsedUrl.toString(),
+    });
+  },
+};
+
 const crashReporter = {
   start(...args: unknown[]): void {
     log("crashReporter.start", args);
@@ -1020,6 +1047,7 @@ const electronModule = new Proxy(
     protocol,
     screen,
     session,
+    shell,
     Tray,
     utilityProcess,
     WebContentsView,
@@ -1053,6 +1081,7 @@ export {
   protocol,
   screen,
   session,
+  shell,
   Tray,
   utilityProcess,
   WebContentsView,

@@ -98,6 +98,10 @@ type MainToRendererMessage =
       args: unknown[];
     }
   | {
+      type: "open-external";
+      url: string;
+    }
+  | {
       type: "ipc-renderer-invoke-result";
       requestId: string;
       ok: true;

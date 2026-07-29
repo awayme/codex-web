@@ -59,6 +59,10 @@ type MainToRendererMessage =
       args: unknown[];
     }
   | {
+      type: "open-external";
+      url: string;
+    }
+  | {
       type: "ipc-renderer-invoke-result";
       requestId: string;
       ok: true;
@@ -242,6 +246,11 @@ installBrowserWindowFocusListeners();
 function handleIncomingMessage(message: MainToRendererMessage): void {
   if (message.type === "ipc-main-event") {
     emitRendererEvent(message.channel, message.args);
+    return;
+  }
+
+  if (message.type === "open-external") {
+    window.open(message.url, "_blank", "noopener,noreferrer");
     return;
   }
 
