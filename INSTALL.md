@@ -447,9 +447,27 @@ it refers to the in-app Browser tool.
 ### Authorize “Control other devices” on Cloud Run
 
 OpenAI's native desktop OAuth client returns to
-`http://localhost:1455/auth/callback` (or port `1457`). Cloud Run only exposes
-the service's normal HTTPS endpoint, so run the included one-time relay on the
-same Mac and in the same browser where you use Codex Web:
+`http://localhost:1455/auth/callback` (or port `1457`). OpenAI rejects a Cloud
+Run HTTPS URL for this registered client, so Codex Web provides a manual,
+Cloud Run-only callback handoff:
+
+1. Select **Settings > Connections > Control other devices > Set up >
+   Authorize on chatgpt.com**.
+2. Complete the OpenAI authentication in the new tab.
+3. When the browser reaches the unavailable localhost callback page, copy the
+   complete URL from that tab's address bar.
+4. Return to Codex Web, paste the URL into **Complete remote-control
+   authorization**, and select **Complete authorization**.
+
+Do not paste the callback URL into chat, issue trackers, or logs. It contains a
+short-lived authorization code. Codex Web sends the pasted URL over the
+existing authenticated WebSocket to the Cloud Run instance that is waiting for
+it. The instance validates the localhost host, callback port, path, OAuth
+state, and PKCE exchange before completing enrollment. The code does not enter
+Cloud Run HTTP request logs.
+
+For an automatic handoff instead, you may run the included optional one-time
+relay on the same computer and in the same browser where you use Codex Web:
 
 ```bash
 cd /path/to/codex-web
@@ -458,15 +476,13 @@ npm run cloud-run:oauth-relay -- \
 ```
 
 Use the exact origin shown in the browser address bar. Keep the command
-running, then select **Settings > Connections > Control other devices > Set
-up > Authorize on chatgpt.com**. After the completion page reports success,
-stop the relay with `Ctrl-C`.
+running during authorization, then stop the relay with `Ctrl-C`.
 
 If the browser blocks the automatic OpenAI tab, Codex Web displays a
 **Continue authorization** prompt. Select **Continue on auth.openai.com**;
 that direct click is permitted by browser popup rules.
 
-The relay only listens on Mac loopback ports `1455` and `1457`. It redirects
+The optional relay only listens on loopback ports `1455` and `1457`. It redirects
 the OAuth result back to the existing Cloud Run HTTPS origin in the URL
 fragment, which keeps the authorization code out of Cloud Run request logs.
 The open Codex Web tab then delivers the callback over its existing WebSocket
@@ -481,8 +497,9 @@ controls and the storage bucket's encryption and IAM; it is not a
 hardware-backed, non-extractable key. Wait at least 20 seconds after the first
 successful authorization before deliberately restarting or redeploying.
 
-If a port is already occupied, the relay prints a warning. Close the process
-using that port and rerun the command.
+If an optional relay port is already occupied, the relay prints a warning.
+Close the process using that port and rerun the command, or use the manual
+callback handoff.
 
 ### IAP login is not gcloud login
 

@@ -14,9 +14,41 @@ export type RemoteControlOAuthCallback = {
   search: string;
 };
 
+export function parseRemoteControlOAuthCallbackUrl(
+  value: string,
+): RemoteControlOAuthCallback {
+  let callbackUrl: URL;
+  try {
+    callbackUrl = new URL(value);
+  } catch {
+    throw new Error("Invalid remote-control OAuth callback URL");
+  }
+
+  if (
+    callbackUrl.protocol !== "http:" ||
+    callbackUrl.hostname !== "localhost" ||
+    callbackUrl.username !== "" ||
+    callbackUrl.password !== "" ||
+    callbackUrl.hash !== ""
+  ) {
+    throw new Error("Unsupported remote-control OAuth callback URL");
+  }
+
+  const port = Number(callbackUrl.port);
+  return parseRemoteControlOAuthCallback({
+    path: callbackUrl.pathname,
+    port,
+    search: callbackUrl.search,
+  });
+}
+
 export function parseRemoteControlOAuthCallback(
   value: unknown,
 ): RemoteControlOAuthCallback {
+  if (typeof value === "string") {
+    return parseRemoteControlOAuthCallbackUrl(value);
+  }
+
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error("Invalid remote-control OAuth callback");
   }

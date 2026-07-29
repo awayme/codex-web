@@ -1,6 +1,7 @@
 node_modules/
 scratch*/
 sentry
+.codex/chats/
 src/server/**/*.d.ts
 src/server/**/*.d.ts.map
 src/server/**/*.js

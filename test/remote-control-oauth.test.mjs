@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
 import test from "node:test";
 import {
   forwardRemoteControlOAuthCallback,
   parseRemoteControlOAuthCallback,
+  parseRemoteControlOAuthCallbackUrl,
   remoteControlOAuthCompleteHtml,
 } from "../src/server/oauth-callback.js";
 
@@ -73,6 +75,34 @@ test("validates remote-control callback payloads", () => {
   );
 });
 
+test("validates manually pasted localhost callback URLs", () => {
+  const callbackUrl =
+    "http://localhost:1457/auth/callback?code=authorization-code&state=expected-state";
+  assert.deepEqual(parseRemoteControlOAuthCallbackUrl(callbackUrl), {
+    port: 1457,
+    path: "/auth/callback",
+    search: "?code=authorization-code&state=expected-state",
+  });
+  assert.deepEqual(parseRemoteControlOAuthCallback(callbackUrl), {
+    port: 1457,
+    path: "/auth/callback",
+    search: "?code=authorization-code&state=expected-state",
+  });
+
+  for (const invalidUrl of [
+    "https://localhost:1455/auth/callback?code=value&state=value",
+    "http://codex-web.example.test:1455/auth/callback?code=value&state=value",
+    "http://user@localhost:1455/auth/callback?code=value&state=value",
+    "http://localhost:1455/auth/callback?code=value&state=value#fragment",
+    "http://localhost:8080/auth/callback?code=value&state=value",
+  ]) {
+    assert.throws(
+      () => parseRemoteControlOAuthCallbackUrl(invalidUrl),
+      /remote-control OAuth callback/u,
+    );
+  }
+});
+
 test("forwards a callback to the loopback OAuth listener", async () => {
   let receivedUrl = null;
   const callbackServer = http.createServer((request, response) => {
@@ -104,6 +134,17 @@ test("completion page keeps OAuth values in the browser fragment", () => {
   assert.match(html, /location\.hash/);
   assert.match(html, /BroadcastChannel/);
   assert.doesNotMatch(html, /authorization-code/);
+});
+
+test("browser offers a Cloud Run-only manual callback handoff", async () => {
+  const source = await fs.readFile(
+    new URL("../src/browser/shim.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /Complete remote-control authorization/u);
+  assert.match(source, /Do not paste the URL into chat/u);
+  assert.match(source, /callback: callbackUrl/u);
+  assert.match(source, /type: "oauth-callback-forward"/u);
 });
 
 test("local relay redirects the localhost callback into a fragment", async () => {

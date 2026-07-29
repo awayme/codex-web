@@ -204,8 +204,250 @@ function unimplemented(method: string): never {
 }
 
 let externalLinkPrompt: HTMLElement | null = null;
+let manualOAuthCallbackPrompt: {
+  dismiss: () => void;
+  input: HTMLTextAreaElement;
+  requestId: string | null;
+  status: HTMLElement;
+  submit: HTMLButtonElement;
+} | null = null;
 
-function showExternalLinkPrompt(url: string): void {
+function isRemoteControlAuthorizationUrl(url: URL): boolean {
+  if (
+    url.protocol !== "https:" ||
+    url.hostname !== "auth.openai.com" ||
+    url.pathname !== "/oauth/authorize"
+  ) {
+    return false;
+  }
+
+  const scopes = url.searchParams.get("scope")?.split(/\s+/) ?? [];
+  if (!scopes.includes("codex.remote_control.enroll")) {
+    return false;
+  }
+
+  const redirectValue = url.searchParams.get("redirect_uri");
+  if (!redirectValue) {
+    return false;
+  }
+
+  try {
+    const redirectUrl = new URL(redirectValue);
+    return (
+      redirectUrl.protocol === "http:" &&
+      redirectUrl.hostname === "localhost" &&
+      new Set(["1455", "1457"]).has(redirectUrl.port) &&
+      redirectUrl.pathname === "/auth/callback"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function parseManualOAuthCallbackUrl(value: string): string {
+  const trimmed = value.trim();
+  let callbackUrl: URL;
+  try {
+    callbackUrl = new URL(trimmed);
+  } catch {
+    throw new Error("Paste the complete localhost callback URL.");
+  }
+
+  if (
+    callbackUrl.protocol !== "http:" ||
+    callbackUrl.hostname !== "localhost" ||
+    !new Set(["1455", "1457"]).has(callbackUrl.port) ||
+    callbackUrl.pathname !== "/auth/callback" ||
+    callbackUrl.username !== "" ||
+    callbackUrl.password !== "" ||
+    callbackUrl.hash !== "" ||
+    !callbackUrl.searchParams.has("state") ||
+    (!callbackUrl.searchParams.has("code") &&
+      !callbackUrl.searchParams.has("error"))
+  ) {
+    throw new Error(
+      "Use the complete http://localhost:1455 or :1457 callback URL from OpenAI.",
+    );
+  }
+
+  return callbackUrl.toString();
+}
+
+function showManualOAuthCallbackPrompt(): void {
+  manualOAuthCallbackPrompt?.dismiss();
+
+  const overlay = document.createElement("div");
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute(
+    "aria-labelledby",
+    "codex-web-manual-oauth-callback-title",
+  );
+  Object.assign(overlay.style, {
+    alignItems: "center",
+    background: "rgb(0 0 0 / 45%)",
+    display: "flex",
+    inset: "0",
+    justifyContent: "center",
+    padding: "24px",
+    position: "fixed",
+    zIndex: "2147483647",
+  });
+
+  const card = document.createElement("div");
+  Object.assign(card.style, {
+    background: "Canvas",
+    border: "1px solid color-mix(in srgb, CanvasText 20%, transparent)",
+    borderRadius: "12px",
+    boxShadow: "0 18px 55px rgb(0 0 0 / 25%)",
+    color: "CanvasText",
+    font: "14px system-ui, sans-serif",
+    maxWidth: "560px",
+    padding: "24px",
+    width: "100%",
+  });
+
+  const title = document.createElement("h2");
+  title.id = "codex-web-manual-oauth-callback-title";
+  title.textContent = "Complete remote-control authorization";
+  Object.assign(title.style, {
+    fontSize: "18px",
+    margin: "0 0 8px",
+  });
+
+  const detail = document.createElement("p");
+  detail.textContent =
+    "After OpenAI redirects to a localhost page, copy the complete URL from that tab's address bar, return here, and paste it below. Do not paste the URL into chat.";
+  Object.assign(detail.style, {
+    lineHeight: "1.5",
+    margin: "0 0 14px",
+    opacity: "0.78",
+  });
+
+  const form = document.createElement("form");
+
+  const label = document.createElement("label");
+  label.htmlFor = "codex-web-manual-oauth-callback-url";
+  label.textContent = "OpenAI localhost callback URL";
+  Object.assign(label.style, {
+    display: "block",
+    fontWeight: "600",
+    marginBottom: "7px",
+  });
+
+  const input = document.createElement("textarea");
+  input.id = "codex-web-manual-oauth-callback-url";
+  input.name = "callbackUrl";
+  input.rows = 4;
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.placeholder = "http://localhost:1455/auth/callback?code=…&state=…";
+  Object.assign(input.style, {
+    background: "Canvas",
+    border: "1px solid color-mix(in srgb, CanvasText 25%, transparent)",
+    borderRadius: "8px",
+    boxSizing: "border-box",
+    color: "CanvasText",
+    font: "12px ui-monospace, SFMono-Regular, Consolas, monospace",
+    padding: "10px",
+    resize: "vertical",
+    width: "100%",
+  });
+
+  const status = document.createElement("p");
+  status.setAttribute("aria-live", "polite");
+  Object.assign(status.style, {
+    lineHeight: "1.4",
+    margin: "10px 0 0",
+    minHeight: "20px",
+  });
+
+  const actions = document.createElement("div");
+  Object.assign(actions.style, {
+    display: "flex",
+    gap: "10px",
+    justifyContent: "flex-end",
+    marginTop: "16px",
+  });
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "Cancel";
+  Object.assign(cancel.style, {
+    background: "transparent",
+    border: "1px solid color-mix(in srgb, CanvasText 25%, transparent)",
+    borderRadius: "8px",
+    color: "CanvasText",
+    cursor: "pointer",
+    padding: "9px 14px",
+  });
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Complete authorization";
+  Object.assign(submit.style, {
+    background: "#10a37f",
+    border: "0",
+    borderRadius: "8px",
+    color: "white",
+    cursor: "pointer",
+    padding: "10px 14px",
+  });
+
+  const dismiss = (): void => {
+    input.value = "";
+    if (manualOAuthCallbackPrompt?.requestId) {
+      oauthCallbackRequestIds.delete(manualOAuthCallbackPrompt.requestId);
+    }
+    overlay.remove();
+    if (manualOAuthCallbackPrompt?.dismiss === dismiss) {
+      manualOAuthCallbackPrompt = null;
+    }
+  };
+
+  cancel.addEventListener("click", dismiss);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    try {
+      const callbackUrl = parseManualOAuthCallbackUrl(input.value);
+      const requestId = crypto.randomUUID();
+      oauthCallbackRequestIds.add(requestId);
+      if (manualOAuthCallbackPrompt) {
+        manualOAuthCallbackPrompt.requestId = requestId;
+      }
+      input.disabled = true;
+      submit.disabled = true;
+      status.textContent = "Sending the callback to the Cloud Run instance…";
+      status.style.color = "CanvasText";
+      enqueueMessage({
+        type: "oauth-callback-forward",
+        requestId,
+        callback: callbackUrl,
+      });
+    } catch (error) {
+      status.textContent =
+        error instanceof Error
+          ? error.message
+          : "The callback URL could not be used.";
+      status.style.color = "#d93025";
+    }
+  });
+
+  actions.append(cancel, submit);
+  form.append(label, input, status, actions);
+  card.append(title, detail, form);
+  overlay.append(card);
+  document.body.append(overlay);
+  manualOAuthCallbackPrompt = {
+    dismiss,
+    input,
+    requestId: null,
+    status,
+    submit,
+  };
+}
+
+function showExternalLinkPrompt(url: string, afterOpen?: () => void): void {
   externalLinkPrompt?.remove();
 
   const overlay = document.createElement("div");
@@ -292,7 +534,10 @@ function showExternalLinkPrompt(url: string): void {
     textDecoration: "none",
   });
   continueLink.addEventListener("click", () => {
-    window.setTimeout(dismiss, 0);
+    window.setTimeout(() => {
+      dismiss();
+      afterOpen?.();
+    }, 0);
   });
 
   actions.append(cancel, continueLink);
@@ -319,9 +564,17 @@ function openExternalUrl(url: string): void {
   const popup = window.open(parsedUrl.toString(), "_blank");
   if (popup) {
     popup.opener = null;
+    if (isRemoteControlAuthorizationUrl(parsedUrl)) {
+      showManualOAuthCallbackPrompt();
+    }
     return;
   }
-  showExternalLinkPrompt(parsedUrl.toString());
+  showExternalLinkPrompt(
+    parsedUrl.toString(),
+    isRemoteControlAuthorizationUrl(parsedUrl)
+      ? showManualOAuthCallbackPrompt
+      : undefined,
+  );
 }
 
 export function emitRendererEvent(channel: string, args: unknown[]): void {
@@ -417,6 +670,30 @@ function handleIncomingMessage(message: MainToRendererMessage): void {
 
   if (message.type === "oauth-callback-forward-result") {
     oauthCallbackRequestIds.delete(message.requestId);
+    const prompt = manualOAuthCallbackPrompt;
+    if (prompt) {
+      if (prompt.requestId === message.requestId) {
+        prompt.requestId = null;
+        if (message.ok) {
+          prompt.input.value = "";
+          prompt.status.textContent =
+            "Callback accepted. Remote-control enrollment is finishing…";
+          prompt.status.style.color = "#188038";
+          window.setTimeout(prompt.dismiss, 1_500);
+        } else {
+          prompt.input.disabled = false;
+          prompt.submit.disabled = false;
+          prompt.status.textContent = message.errorMessage;
+          prompt.status.style.color = "#d93025";
+          prompt.input.focus();
+        }
+      } else if (message.ok) {
+        prompt.status.textContent =
+          "Callback accepted. Remote-control enrollment is finishing…";
+        prompt.status.style.color = "#188038";
+        window.setTimeout(prompt.dismiss, 1_500);
+      }
+    }
     oauthCallbackChannel?.postMessage({
       type: "codex-web-oauth-callback-result",
       requestId: message.requestId,

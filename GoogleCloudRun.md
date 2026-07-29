@@ -519,8 +519,25 @@ outbound IP.
 ### Authorize “Control other devices”
 
 Cloud Run accepts public traffic through the service's HTTPS endpoint; it does
-not expose OpenAI's native loopback callback ports. On the Mac where Codex Web
-is open, run:
+not expose OpenAI's native loopback callback ports. OpenAI rejects a Cloud Run
+HTTPS callback for its registered desktop client, so use Codex Web's built-in
+manual callback handoff:
+
+1. Start **Settings > Connections > Control other devices > Set up > Authorize
+   on chatgpt.com** and complete authentication.
+2. At the unavailable localhost callback page, copy the complete URL from the
+   address bar.
+3. Return to Codex Web, paste it into **Complete remote-control
+   authorization**, and select **Complete authorization**.
+
+Do not put the callback URL in chat or logs. It contains a short-lived code.
+The browser sends it through the existing authenticated WebSocket to the
+waiting Cloud Run instance, which enforces the expected localhost port, path,
+OAuth state, and PKCE verifier. No additional Cloud Run port is opened, and the
+code stays out of HTTP access logs.
+
+To automate the handoff, optionally run this helper on the computer where
+Codex Web is open:
 
 ```bash
 cd /path/to/codex-web
@@ -528,11 +545,10 @@ npm run cloud-run:oauth-relay -- \
   https://YOUR-EXACT-CODEX-WEB-SERVICE-URL
 ```
 
-Keep the relay running while selecting **Settings > Connections > Control
-other devices > Set up > Authorize on chatgpt.com**, then stop it with
-`Ctrl-C`. Use the exact service origin from the browser address bar. The relay
-keeps the OpenAI-supported localhost OAuth redirect and returns the result to
-Cloud Run through HTTPS; it does not open another Cloud Run port.
+Keep the relay running during authorization, then stop it with `Ctrl-C`. Use
+the exact service origin from the browser address bar. The relay keeps the
+OpenAI-supported localhost OAuth redirect and returns the result to Cloud Run
+through HTTPS; it does not open another Cloud Run port.
 
 If the automatic OpenAI tab is blocked, select **Continue on
 auth.openai.com** in the **Continue authorization** prompt shown by Codex Web.
