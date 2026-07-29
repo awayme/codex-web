@@ -516,6 +516,24 @@ dynamic outbound addresses by default. If the remote server requires an IP
 allowlist, configure Direct VPC egress and Cloud NAT with a reserved static
 outbound IP.
 
+### Authorize “Control other devices”
+
+Cloud Run accepts public traffic through the service's HTTPS endpoint; it does
+not expose OpenAI's native loopback callback ports. On the Mac where Codex Web
+is open, run:
+
+```bash
+cd /path/to/codex-web
+npm run cloud-run:oauth-relay -- \
+  https://YOUR-EXACT-CODEX-WEB-SERVICE-URL
+```
+
+Keep the relay running while selecting **Settings > Connections > Control
+other devices > Set up > Authorize on chatgpt.com**, then stop it with
+`Ctrl-C`. Use the exact service origin from the browser address bar. The relay
+keeps the OpenAI-supported localhost OAuth redirect and returns the result to
+Cloud Run through HTTPS; it does not open another Cloud Run port.
+
 ### The service URL returns an authorization error
 
 Complete the first-time IAP configuration and verify that the active Google

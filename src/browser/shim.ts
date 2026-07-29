@@ -45,6 +45,11 @@ type RendererToMainMessage =
       requestId: string;
       directoryPath: string | null;
       directoriesOnly: boolean;
+    }
+  | {
+      type: "oauth-callback-forward";
+      requestId: string;
+      callback: unknown;
     };
 
 type MainToRendererMessage =
@@ -85,6 +90,17 @@ type MainToRendererMessage =
   | {
       type: "message-port-close";
       portId: string;
+    }
+  | {
+      type: "oauth-callback-forward-result";
+      requestId: string;
+      ok: true;
+    }
+  | {
+      type: "oauth-callback-forward-result";
+      requestId: string;
+      ok: false;
+      errorMessage: string;
     };
 
 const RECONNECT_DELAY_MS = 1_000;
@@ -148,6 +164,35 @@ const pendingDirectoryEntries = new Map<
 >();
 const rendererListeners = new Map<string, Set<IpcListener>>();
 const messagePorts = new Map<string, MessagePort>();
+const oauthCallbackRequestIds = new Set<string>();
+const oauthCallbackChannel =
+  typeof BroadcastChannel === "undefined"
+    ? null
+    : new BroadcastChannel("codex-web-oauth-callback");
+
+if (oauthCallbackChannel) {
+  oauthCallbackChannel.addEventListener("message", (event) => {
+    const value = event.data as unknown;
+    if (
+      !isRecord(value) ||
+      value.type !== "codex-web-oauth-callback" ||
+      typeof value.requestId !== "string" ||
+      oauthCallbackRequestIds.has(value.requestId)
+    ) {
+      return;
+    }
+
+    oauthCallbackRequestIds.add(value.requestId);
+    window.setTimeout(() => {
+      oauthCallbackRequestIds.delete(value.requestId);
+    }, 2_000);
+    enqueueMessage({
+      type: "oauth-callback-forward",
+      requestId: value.requestId,
+      callback: value.callback,
+    });
+  });
+}
 
 function unimplemented(method: string): never {
   debugger;
@@ -237,6 +282,17 @@ function handleIncomingMessage(message: MainToRendererMessage): void {
       return;
     }
     pending.reject(new Error(message.errorMessage));
+    return;
+  }
+
+  if (message.type === "oauth-callback-forward-result") {
+    oauthCallbackRequestIds.delete(message.requestId);
+    oauthCallbackChannel?.postMessage({
+      type: "codex-web-oauth-callback-result",
+      requestId: message.requestId,
+      ok: message.ok,
+      ...(message.ok ? {} : { errorMessage: message.errorMessage }),
+    });
   }
 }
 

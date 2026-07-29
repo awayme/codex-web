@@ -42,6 +42,10 @@ then open <http://127.0.0.1:8214> in a browser.
 
 ## docker
 
+For a complete local Docker and Google Cloud Run installation guide, including
+SSH host setup, persistent CLI login, and known issues, see
+[INSTALL.md](INSTALL.md).
+
 build the production image:
 
 ```bash
@@ -203,9 +207,13 @@ SSH configuration are restored separately from Secret Manager.
 
 the script seeds Codex authentication from the local `codex-web` container and
 packages the files in `~/.config/codex-web/ssh` into Secret Manager. Cloud Run
-only exposes the main HTTP port, so the local OAuth callback bridge is disabled
-there. rerunning the helper publishes the current commit, uploads new secret
-versions, and deploys a new revision while retaining `/data` in the bucket.
+only exposes the main HTTP port, so the container's direct OAuth callback
+bridge is disabled there. To authorize **Control other devices**, run the
+one-time local relay documented in
+[INSTALL.md](INSTALL.md#authorize-control-other-devices-on-cloud-run).
+rerunning the deployment helper publishes the current commit, uploads new
+secret versions, and deploys a new revision while retaining `/data` in the
+bucket.
 
 defaults can be overridden without editing the script:
 
