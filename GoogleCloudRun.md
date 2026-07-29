@@ -534,6 +534,13 @@ other devices > Set up > Authorize on chatgpt.com**, then stop it with
 keeps the OpenAI-supported localhost OAuth redirect and returns the result to
 Cloud Run through HTTPS; it does not open another Cloud Run port.
 
+The Linux container uses a P-256 software device key in `CODEX_HOME` in place
+of the macOS-only Keychain/Secure Enclave implementation. Its file permissions
+are owner-only and the existing state snapshot persists it, but it is not a
+hardware-backed, non-extractable key. Keep the service private, restrict access
+to the data bucket, and wait at least 20 seconds after authorization before a
+planned restart or deployment.
+
 ### The service URL returns an authorization error
 
 Complete the first-time IAP configuration and verify that the active Google

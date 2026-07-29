@@ -26,6 +26,7 @@ RUN npm ci --include=dev --ignore-scripts \
 
 COPY assets/ ./assets/
 COPY patches/ ./patches/
+COPY scripts/enable_linux_remote_control_keys.mjs ./scripts/enable_linux_remote_control_keys.mjs
 COPY scripts/prepare_asar ./scripts/prepare_asar
 COPY scripts/smoke_test_terminal_pty.mjs ./scripts/smoke_test_terminal_pty.mjs
 COPY src/ ./src/
@@ -122,6 +123,7 @@ ENV CODEX_CLI_PATH=/usr/local/bin/codex \
   CODEX_SSH_SOURCE_DIR=/run/secrets/codex-ssh \
   CODEX_WEB_OAUTH_CALLBACK_BRIDGE=1 \
   CODEX_WEB_OAUTH_CALLBACK_PORT=1455 \
+  CODEX_WEB_SOFTWARE_DEVICE_KEYS=1 \
   CODEX_WEB_DATA_DIR=/data \
   CODEX_WEB_HOST=0.0.0.0 \
   HOME=/home/codex \

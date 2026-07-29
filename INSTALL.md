@@ -468,6 +468,15 @@ fragment, which keeps the authorization code out of Cloud Run request logs.
 The open Codex Web tab then delivers the callback over its existing WebSocket
 to the correct container instance. No additional Cloud Run port is exposed.
 
+On Linux, Codex Web uses a P-256 software device key because OpenAI's bundled
+desktop implementation otherwise requires the macOS Keychain and Secure
+Enclave. The private key is stored with owner-only permissions inside
+`CODEX_HOME`, so it survives local `/data` volume reuse and Cloud Run state
+snapshots. Cloud Run protects this key through the service's private access
+controls and the storage bucket's encryption and IAM; it is not a
+hardware-backed, non-extractable key. Wait at least 20 seconds after the first
+successful authorization before deliberately restarting or redeploying.
+
 If a port is already occupied, the relay prints a warning. Close the process
 using that port and rerun the command.
 
