@@ -10,10 +10,10 @@ import {
   remoteControlOAuthCompleteHtml,
 } from "../src/server/oauth-callback.js";
 
-function listen(server, port = 0) {
+function listen(server, port = 0, host = "127.0.0.1") {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(port, "127.0.0.1", () => {
+    server.listen(port, host, () => {
       server.off("error", reject);
       resolve();
     });
@@ -129,6 +129,32 @@ test("forwards a callback to the loopback OAuth listener", async () => {
   }
 });
 
+test("forwards a callback to an IPv6 loopback OAuth listener", async () => {
+  let receivedUrl = null;
+  const callbackServer = http.createServer((request, response) => {
+    receivedUrl = request.url;
+    response.writeHead(200, { "Content-Type": "text/plain" });
+    response.end("ok");
+  });
+  await listen(callbackServer, 0, "::1");
+
+  try {
+    const address = callbackServer.address();
+    assert(address && typeof address === "object");
+    await forwardRemoteControlOAuthCallback({
+      port: address.port,
+      path: "/auth/callback",
+      search: "?code=authorization-code&state=expected-state",
+    });
+    assert.equal(
+      receivedUrl,
+      "/auth/callback?code=authorization-code&state=expected-state",
+    );
+  } finally {
+    await close(callbackServer);
+  }
+});
+
 test("completion page keeps OAuth values in the browser fragment", () => {
   const html = remoteControlOAuthCompleteHtml();
   assert.match(html, /location\.hash/);
@@ -145,6 +171,9 @@ test("browser offers a Cloud Run-only manual callback handoff", async () => {
   assert.match(source, /Do not paste the URL into chat/u);
   assert.match(source, /callback: callbackUrl/u);
   assert.match(source, /type: "oauth-callback-forward"/u);
+  assert.match(source, /getActiveModalMountTarget\(\)\.append\(overlay\)/u);
+  assert.match(source, /pointerEvents: "auto"/u);
+  assert.match(source, /input\.focus\(\)/u);
 });
 
 test("local relay redirects the localhost callback into a fragment", async () => {

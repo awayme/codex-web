@@ -273,6 +273,19 @@ function parseManualOAuthCallbackUrl(value: string): string {
   return callbackUrl.toString();
 }
 
+function getActiveModalMountTarget(): HTMLElement {
+  const dialogs = document.querySelectorAll<HTMLElement>(
+    '[role="dialog"][aria-modal="true"]',
+  );
+  for (let index = dialogs.length - 1; index >= 0; index -= 1) {
+    const dialog = dialogs[index];
+    if (dialog?.isConnected) {
+      return dialog;
+    }
+  }
+  return document.body;
+}
+
 function showManualOAuthCallbackPrompt(): void {
   manualOAuthCallbackPrompt?.dismiss();
 
@@ -290,6 +303,7 @@ function showManualOAuthCallbackPrompt(): void {
     inset: "0",
     justifyContent: "center",
     padding: "24px",
+    pointerEvents: "auto",
     position: "fixed",
     zIndex: "2147483647",
   });
@@ -406,6 +420,13 @@ function showManualOAuthCallbackPrompt(): void {
   };
 
   cancel.addEventListener("click", dismiss);
+  overlay.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      dismiss();
+    }
+  });
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     try {
@@ -417,7 +438,7 @@ function showManualOAuthCallbackPrompt(): void {
       }
       input.disabled = true;
       submit.disabled = true;
-      status.textContent = "Sending the callback to the Cloud Run instance…";
+      status.textContent = "Sending the callback to this Codex Web instance…";
       status.style.color = "CanvasText";
       enqueueMessage({
         type: "oauth-callback-forward",
@@ -437,7 +458,7 @@ function showManualOAuthCallbackPrompt(): void {
   form.append(label, input, status, actions);
   card.append(title, detail, form);
   overlay.append(card);
-  document.body.append(overlay);
+  getActiveModalMountTarget().append(overlay);
   manualOAuthCallbackPrompt = {
     dismiss,
     input,
@@ -445,6 +466,11 @@ function showManualOAuthCallbackPrompt(): void {
     status,
     submit,
   };
+  window.setTimeout(() => {
+    if (input.isConnected) {
+      input.focus();
+    }
+  }, 0);
 }
 
 function showExternalLinkPrompt(url: string, afterOpen?: () => void): void {

@@ -7,6 +7,7 @@ export const REMOTE_CONTROL_OAUTH_COMPLETE_PATH =
   "/__backend/oauth/remote-control-complete";
 
 const MAX_CALLBACK_SEARCH_LENGTH = 16_384;
+const LOOPBACK_CALLBACK_HOSTS = ["::1", "127.0.0.1"] as const;
 
 export type RemoteControlOAuthCallback = {
   path: string;
@@ -98,44 +99,66 @@ export async function forwardRemoteControlOAuthCallback(
     timeoutMs?: number;
   } = {},
 ): Promise<void> {
-  const host = options.host ?? "127.0.0.1";
   const timeoutMs = options.timeoutMs ?? 10_000;
+  const hosts = options.host ? [options.host] : LOOPBACK_CALLBACK_HOSTS;
+  let lastError: unknown;
 
-  await new Promise<void>((resolve, reject) => {
-    const request = http.request(
-      {
-        host,
-        port: callback.port,
-        path: `${callback.path}${callback.search}`,
-        method: "GET",
-        headers: {
-          Connection: "close",
-          Host: `localhost:${callback.port}`,
-        },
-      },
-      (response) => {
-        response.resume();
-        response.once("end", () => {
-          const statusCode = response.statusCode ?? 500;
-          if (statusCode >= 200 && statusCode < 300) {
-            resolve();
-            return;
-          }
-          reject(
-            new Error(
-              `Remote-control OAuth callback was rejected (${statusCode})`,
-            ),
-          );
+  for (const host of hosts) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const request = http.request(
+          {
+            host,
+            port: callback.port,
+            path: `${callback.path}${callback.search}`,
+            method: "GET",
+            headers: {
+              Connection: "close",
+              Host: `localhost:${callback.port}`,
+            },
+          },
+          (response) => {
+            response.resume();
+            response.once("end", () => {
+              const statusCode = response.statusCode ?? 500;
+              if (statusCode >= 200 && statusCode < 300) {
+                resolve();
+                return;
+              }
+              reject(
+                new Error(
+                  `Remote-control OAuth callback was rejected (${statusCode})`,
+                ),
+              );
+            });
+          },
+        );
+
+        request.setTimeout(timeoutMs, () => {
+          request.destroy(new Error("Remote-control OAuth callback timed out"));
         });
-      },
-    );
+        request.once("error", reject);
+        request.end();
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? String(error.code)
+          : null;
+      if (!new Set(["EADDRNOTAVAIL", "ECONNREFUSED"]).has(code ?? "")) {
+        throw error;
+      }
+    }
+  }
 
-    request.setTimeout(timeoutMs, () => {
-      request.destroy(new Error("Remote-control OAuth callback timed out"));
-    });
-    request.once("error", reject);
-    request.end();
-  });
+  throw (
+    lastError ??
+    new Error(
+      `No loopback OAuth listener is available on port ${callback.port}`,
+    )
+  );
 }
 
 export function remoteControlOAuthCompleteHtml(): string {

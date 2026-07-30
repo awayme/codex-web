@@ -42,9 +42,19 @@ then open <http://127.0.0.1:8214> in a browser.
 
 ## docker
 
-For a complete local Docker and Google Cloud Run installation guide, including
-SSH host setup, persistent CLI login, and known issues, see
+For the complete local Docker, existing-CLI VM, shared-ingress, and Google
+Cloud Run installation guide—including SSH setup, persistent CLI login,
+installer flags, OAuth callback choices, and known issues—see
 [INSTALL.md](INSTALL.md).
+
+Choose the deployment path that matches the host:
+
+| Deployment                                      | Ingress                                                                      | Starting point                                                                                                                                      |
+| ----------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local workstation                               | Loopback HTTP                                                                | Build and run the container manually.                                                                                                               |
+| Standalone VM with free ports 80/443            | Authenticated Caddy HTTPS, with a custom domain or automatic `sslip.io` name | Run `./scripts/install-vm.sh`.                                                                                                                      |
+| Shared VM whose ports 80/443 are already in use | Existing gateway or a separately managed Cloudflare Tunnel                   | Keep the existing service unchanged and follow the shared-VM procedure in [INSTALL.md](INSTALL.md#shared-vm-existing-gateway-or-cloudflare-tunnel). |
+| Google Cloud Run                                | Private IAP-protected HTTPS                                                  | Run `./scripts/deploy-cloud-run.sh` and follow [GoogleCloudRun.md](GoogleCloudRun.md).                                                              |
 
 build the production image:
 
@@ -58,6 +68,8 @@ run it with a persistent data volume:
 docker run --rm \
   --name codex-web \
   --publish 127.0.0.1:8080:8080 \
+  --publish 127.0.0.1:1455:1455 \
+  --publish 127.0.0.1:1457:1457 \
   --volume codex-web-data:/data \
   codex-web:local
 ```
@@ -80,6 +92,46 @@ the image contains:
 the build downloads and patches the pinned upstream codex desktop bundle. the
 largest renderer bundle requires several gigabytes of memory while prettier
 prepares it, so give the docker builder at least 6 GiB.
+
+### install on a VM that already has Codex CLI
+
+The VM installer preserves the upstream multi-host model: Codex Web runs in
+Docker, while the existing Codex CLI, projects, chats, credentials, and tools
+remain under the selected SSH user's account.
+
+```bash
+./scripts/install-vm.sh
+```
+
+Interactive choices cover:
+
+- pasting a complete multiline private key or selecting an existing key file;
+- SSH username, host, port, and the connection alias shown in Codex Web;
+- a custom domain or an automatic `<IPv4-with-dashes>.sslip.io` hostname;
+- an entered or generated HTTPS password; and
+- public Caddy TLS or private/internal TLS with custom ports.
+
+The script preflights every required host port before changing containers or
+volumes. If an existing service owns ports 80/443, it exits without touching
+that service; use the documented shared-gateway or Cloudflare Tunnel layout
+instead.
+
+For repeatable setup:
+
+```bash
+CODEX_WEB_INSTALL_PASSWORD='replace-with-a-long-password' \
+./scripts/install-vm.sh \
+  --ssh-key /path/to/id_ed25519 \
+  --ssh-user codex \
+  --ssh-host 203.0.113.10 \
+  --domain codex.example.com \
+  --host-alias codex-vm \
+  --yes
+```
+
+Run `./scripts/install-vm.sh --help` for every supported port, image, resource
+name, TLS, build, and replacement option. The full option table and examples
+are in [INSTALL.md](INSTALL.md#complete-flag-reference).
 
 ### multiple remote codex hosts
 
@@ -120,6 +172,7 @@ docker run --rm \
   --name codex-web \
   --publish 127.0.0.1:8080:8080 \
   --publish 127.0.0.1:1455:1455 \
+  --publish 127.0.0.1:1457:1457 \
   --volume codex-web-data:/data \
   --volume "$PWD/codex-ssh-secrets:/run/secrets/codex-ssh:ro" \
   codex-web:local
@@ -155,23 +208,40 @@ in the same upstream UI used by codex desktop.
 application state. keep it on a persistent volume. codex chats, repositories,
 credentials, skills, and tools remain on each selected remote machine.
 
-### sign in from a local docker container
+### sign in and authorize callbacks
 
-the desktop OAuth flow returns to `http://localhost:1455/auth/callback`. publish
-host port `1455` to the same container so the built-in callback bridge can
-forward that request to Codex's loopback-only login listener:
+The web container has its own persistent Codex login, separate from every SSH
+host. For a VM installation, authenticate it once with:
+
+```bash
+docker exec -it codex-web codex login --device-auth
+docker exec codex-web codex login status
+```
+
+Desktop and remote-control OAuth can return to
+`http://localhost:1455/auth/callback` or port `1457`. Publish both host ports to
+the same container so the callback bridge can forward to either an IPv4 or
+IPv6 loopback listener:
 
 ```bash
 docker run --rm \
   --name codex-web \
   --publish 127.0.0.1:8080:8080 \
   --publish 127.0.0.1:1455:1455 \
+  --publish 127.0.0.1:1457:1457 \
   --volume codex-web-data:/data \
   codex-web:local
 ```
 
-keep the callback port bound to host loopback. `/data/codex` stores the local
-Codex authentication cache so login survives container recreation.
+keep both callback ports bound to host loopback. `1455` is the normal Codex
+login callback and `1457` is also accepted by remote-control enrollment.
+`/data/codex` stores the local Codex authentication cache so login survives
+container recreation.
+
+When the browser is on another computer, either use Codex Web's manual
+address-bar callback dialog or run the printed SSH `-L 1455` and `-L 1457`
+tunnel on the browser computer for automatic delivery. Treat every callback
+URL as a short-lived secret and never paste one into chat or logs.
 
 ### deploy to Google Cloud Run
 

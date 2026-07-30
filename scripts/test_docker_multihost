@@ -113,6 +113,16 @@ CODEX_WEB_TEST_PORT="$test_port" \
     --file "$repo_root/compose.test.yaml" \
     exec -T web test -r /home/codex/.ssh/config
 
+for callback_port in 1455 1457; do
+  CODEX_WEB_TEST_SSH_DIR="$test_root" \
+  CODEX_WEB_TEST_PORT="$test_port" \
+    docker compose \
+      --project-name "$compose_project" \
+      --file "$repo_root/compose.test.yaml" \
+      exec -T web sh -c \
+      'ss -ltn | grep -Eq ":${1}[[:space:]]"' sh "$callback_port"
+done
+
 for host in remote-alpha remote-beta; do
   expected="${host#remote-}"
   actual="$(

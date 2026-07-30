@@ -11,6 +11,14 @@ function parsePort(rawPort) {
   return port;
 }
 
+function parsePorts(rawPorts) {
+  const ports = rawPorts.split(",").map((rawPort) => parsePort(rawPort.trim()));
+  if (ports.length === 0 || new Set(ports).size !== ports.length) {
+    throw new Error("OAuth callback ports must be a non-empty unique list");
+  }
+  return ports;
+}
+
 function findExternalIpv4Address() {
   for (const addresses of Object.values(os.networkInterfaces())) {
     for (const address of addresses ?? []) {
@@ -22,36 +30,64 @@ function findExternalIpv4Address() {
   throw new Error("No external IPv4 address is available for the OAuth bridge");
 }
 
-const callbackPort = parsePort(
-  process.env.CODEX_WEB_OAUTH_CALLBACK_PORT ?? "1455",
+const callbackPorts = parsePorts(
+  process.env.CODEX_WEB_OAUTH_CALLBACK_PORTS ??
+    process.env.CODEX_WEB_OAUTH_CALLBACK_PORT ??
+    "1455,1457",
 );
 const bridgeHost =
   process.env.CODEX_WEB_OAUTH_BRIDGE_HOST ?? findExternalIpv4Address();
+const loopbackHosts = ["::1", "127.0.0.1"];
 
-const server = net.createServer((client) => {
-  const callback = net.createConnection({
-    host: "127.0.0.1",
-    port: callbackPort,
-  });
+function connectToLoopback(client, callbackPort) {
+  let callback;
+
+  const tryHost = (index) => {
+    const host = loopbackHosts[index];
+    callback = net.createConnection({
+      host,
+      port: callbackPort,
+    });
+
+    const handleConnectionError = () => {
+      callback.destroy();
+      if (!client.destroyed && index + 1 < loopbackHosts.length) {
+        tryHost(index + 1);
+        return;
+      }
+      client.destroy();
+    };
+
+    callback.once("error", handleConnectionError);
+    callback.once("connect", () => {
+      callback.off("error", handleConnectionError);
+      callback.on("error", () => {
+        client.destroy();
+      });
+      client.pipe(callback);
+      callback.pipe(client);
+    });
+  };
 
   client.on("error", () => {
-    callback.destroy();
+    callback?.destroy();
   });
-  callback.on("error", () => {
-    client.destroy();
+  tryHost(0);
+}
+
+for (const callbackPort of callbackPorts) {
+  const server = net.createServer((client) => {
+    connectToLoopback(client, callbackPort);
   });
 
-  client.pipe(callback);
-  callback.pipe(client);
-});
+  server.on("error", (error) => {
+    console.error(`[oauth-callback-bridge] port ${callbackPort} failed`, error);
+    process.exitCode = 1;
+  });
 
-server.on("error", (error) => {
-  console.error("[oauth-callback-bridge] failed", error);
-  process.exitCode = 1;
-});
-
-server.listen(callbackPort, bridgeHost, () => {
-  console.log(
-    `[oauth-callback-bridge] forwarding ${bridgeHost}:${callbackPort} to 127.0.0.1:${callbackPort}`,
-  );
-});
+  server.listen(callbackPort, bridgeHost, () => {
+    console.log(
+      `[oauth-callback-bridge] forwarding ${bridgeHost}:${callbackPort} to loopback:${callbackPort}`,
+    );
+  });
+}

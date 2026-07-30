@@ -56,12 +56,15 @@ docker run --rm \
   --name codex-web \
   --publish 127.0.0.1:8080:8080 \
   --publish 127.0.0.1:1455:1455 \
+  --publish 127.0.0.1:1457:1457 \
   --volume codex-web-data:/data \
   --volume "$HOME/.config/codex-web/ssh:/run/secrets/codex-ssh:ro" \
   codex-web:local
 ```
 
 Open <http://127.0.0.1:8080> and complete the OpenAI login before proceeding.
+Alternatively, authenticate the persistent container home with
+`docker exec -it codex-web codex login --device-auth`.
 
 If the authentication file is stored elsewhere, provide it explicitly:
 

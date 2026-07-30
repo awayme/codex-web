@@ -37,29 +37,32 @@ function externalIpv4Address() {
   throw new Error("No external IPv4 address is available for the test");
 }
 
-test("forwards an external callback address to container loopback", async () => {
-  const callbackServer = net.createServer((socket) => {
-    socket.end("callback-ok");
-  });
-  await listen(callbackServer, 0, "127.0.0.1");
+test("forwards both external callback addresses to container loopback", async () => {
+  const callbackServers = ["first", "second"].map((marker) =>
+    net.createServer((socket) => {
+      socket.end(`callback-${marker}`);
+    }),
+  );
+  for (const callbackServer of callbackServers) {
+    await listen(callbackServer, 0, "127.0.0.1");
+  }
 
-  const address = callbackServer.address();
-  assert(address && typeof address === "object");
+  const callbackPorts = callbackServers.map((callbackServer) => {
+    const address = callbackServer.address();
+    assert(address && typeof address === "object");
+    return address.port;
+  });
   const bridgeHost = externalIpv4Address();
 
-  const bridge = spawn(
-    process.execPath,
-    ["docker/oauth-callback-bridge.mjs"],
-    {
-      cwd: new URL("..", import.meta.url),
-      env: {
-        ...process.env,
-        CODEX_WEB_OAUTH_BRIDGE_HOST: bridgeHost,
-        CODEX_WEB_OAUTH_CALLBACK_PORT: String(address.port),
-      },
-      stdio: ["ignore", "pipe", "pipe"],
+  const bridge = spawn(process.execPath, ["docker/oauth-callback-bridge.mjs"], {
+    cwd: new URL("..", import.meta.url),
+    env: {
+      ...process.env,
+      CODEX_WEB_OAUTH_BRIDGE_HOST: bridgeHost,
+      CODEX_WEB_OAUTH_CALLBACK_PORTS: callbackPorts.join(","),
     },
-  );
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
   try {
     await new Promise((resolve, reject) => {
@@ -71,29 +74,42 @@ test("forwards an external callback address to container loopback", async () => 
         clearTimeout(timeout);
         reject(new Error(`OAuth callback bridge exited with code ${code}`));
       });
-      bridge.stdout.once("data", () => {
-        clearTimeout(timeout);
-        resolve();
+      let startupOutput = "";
+      bridge.stdout.on("data", (chunk) => {
+        startupOutput += chunk.toString();
+        const startedCount =
+          startupOutput.match(/\[oauth-callback-bridge\] forwarding/gu)
+            ?.length ?? 0;
+        if (startedCount >= callbackPorts.length) {
+          clearTimeout(timeout);
+          resolve();
+        }
       });
     });
 
-    const response = await new Promise((resolve, reject) => {
-      const socket = net.createConnection({
-        host: bridgeHost,
-        port: address.port,
+    const responses = [];
+    for (const callbackPort of callbackPorts) {
+      const response = await new Promise((resolve, reject) => {
+        const socket = net.createConnection({
+          host: bridgeHost,
+          port: callbackPort,
+        });
+        let body = "";
+        socket.setEncoding("utf8");
+        socket.on("data", (chunk) => {
+          body += chunk;
+        });
+        socket.on("end", () => resolve(body));
+        socket.on("error", reject);
       });
-      let body = "";
-      socket.setEncoding("utf8");
-      socket.on("data", (chunk) => {
-        body += chunk;
-      });
-      socket.on("end", () => resolve(body));
-      socket.on("error", reject);
-    });
+      responses.push(response);
+    }
 
-    assert.equal(response, "callback-ok");
+    assert.deepEqual(responses, ["callback-first", "callback-second"]);
   } finally {
     bridge.kill("SIGTERM");
-    await close(callbackServer);
+    for (const callbackServer of callbackServers) {
+      await close(callbackServer);
+    }
   }
 });

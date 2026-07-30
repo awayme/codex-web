@@ -1,9 +1,11 @@
 # Codex Web installation
 
-This guide covers the two supported container installations:
+This guide covers the supported container installations:
 
 1. Docker on a local machine, with a persistent Docker volume.
-2. A private, single-user Google Cloud Run service, with persistent state in
+2. Docker on a VM that already has a logged-in Codex CLI, using either a
+   standalone Caddy HTTPS gateway or a separately managed shared ingress.
+3. A private, single-user Google Cloud Run service, with persistent state in
    Cloud Storage and secrets in Secret Manager.
 
 It also explains remote-machine SSH configuration, OpenAI and CLI login,
@@ -144,6 +146,238 @@ for every selected machine.
 - Docker Desktop or Docker Engine with Buildx
 - At least 6 GiB available to the Docker builder
 
+### Interactive installer for an existing Codex CLI VM
+
+If the VM already has the official installer-managed Codex CLI, is logged in,
+and accepts key-based SSH, the interactive installer builds and starts Codex
+Web and prepares that VM as a native SSH connection:
+
+```bash
+./scripts/install-vm.sh
+```
+
+It asks for:
+
+- whether to paste an unencrypted SSH private key or use an existing key file;
+- the username that owns the existing Codex configuration;
+- the VM IP address or hostname;
+- an existing domain name, or the public IPv4 address used to create an
+  automatic `<IP-with-dashes>.sslip.io` name; and
+- an HTTPS password, or permission to generate one.
+
+The installer verifies the host key, the existing Codex login, the managed
+app-server, the web health endpoint, HTTPS certificate, password protection,
+and the final container-to-VM SSH path. The SSH key is copied into a private
+Docker volume rather than into the repository or a world-readable bind mount.
+Application state and Caddy certificate state are kept in named Docker
+volumes.
+
+The VM login and the web container login are separate. The installer verifies
+the VM account so it can be selected under **Settings > Connections**; it does
+not copy the VM's `auth.json`. If the Codex Web shell requests a login after
+installation, authenticate its persistent `/data/codex` home once:
+
+```bash
+docker exec -it codex-web codex login --device-auth
+docker exec codex-web codex login status
+```
+
+When you choose **Paste**, terminal echo is disabled while the key is entered.
+Paste the complete key from its `BEGIN ... PRIVATE KEY` line through its
+matching `END ... PRIVATE KEY` line, then press **Enter once**. Nothing is
+displayed while the paste is being captured. The reader removes terminal
+bracketed-paste markers and Windows line endings before validating that the
+result is an unencrypted OpenSSH-compatible private key. Only after the key has
+been captured and validated does the installer ask where to save it. It uses
+mode `0600` and defaults to `~/.config/codex-web/keys/codex-vm`. Only the
+protected Docker volume is mounted into the running web container.
+
+Caddy listens publicly on ports `80` and `443`, redirects HTTP to HTTPS, checks
+the configured username and password, and proxies authenticated WebSocket and
+HTTP traffic to Codex Web over a private Docker network. The Codex Web
+application port remains bound to `127.0.0.1:8080`.
+
+OpenAI's registered desktop callback remains a loopback URL and is not routed
+through the public domain. The installer binds both supported callback ports,
+`1455` and `1457`, to VM loopback. There are two completion choices:
+
+1. **Manual handoff (recommended for a remote browser):** after OpenAI opens an
+   unavailable localhost page, copy its complete address-bar URL, return to the
+   Codex Web dialog, paste it, and select **Complete authorization**. Never put
+   this short-lived URL in chat or logs.
+2. **Automatic localhost delivery:** run the SSH tunnel printed by the
+   installer on the computer running the browser, before starting
+   authorization:
+
+```bash
+ssh \
+  -L 1455:127.0.0.1:1455 \
+  -L 1457:127.0.0.1:1457 \
+  USER@VM
+```
+
+The callback bridge supports both IPv4 and IPv6 loopback listeners inside the
+container. Do not reuse a callback after an error; restart the authorization
+flow to obtain a fresh code and state.
+
+The VM and cloud-provider firewalls must allow inbound TCP `80` and TCP/UDP
+`443`. Keep `8080`, `1455`, and `1457` closed to the public internet.
+
+Before changing any containers or volumes, the installer checks every host port
+it intends to bind. If another service already owns one of those ports, the
+installer stops with the listener details and does not stop or replace that
+service. On a shared web host, keep the existing gateway unchanged and use a
+separate ingress such as an outbound Cloudflare Tunnel for Codex Web.
+
+After installation, open **Settings > Connections**, select **Add**, and choose
+the `codex-vm` alias. This last selection remains in the upstream Codex desktop
+connection manager and persists in `/data`.
+
+#### Installer choices
+
+| Choice              | Interactive behavior                                                                  | Non-interactive setting                                                                                           |
+| ------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| SSH key             | Paste a complete unencrypted key, or select an existing file                          | `--paste-key` with `--key-save-path`, or `--ssh-key PATH`                                                         |
+| Remote account      | Prompts for the owner of the existing Codex configuration                             | `--ssh-user USER`, `--ssh-host HOST`, and optional `--ssh-port PORT`                                              |
+| Connection name     | Uses `codex-vm`                                                                       | `--host-alias ALIAS`                                                                                              |
+| Public name         | Use an existing domain, or discover the VM IPv4 and create a dashed `sslip.io` name   | `--domain DOMAIN` or `--public-ip IPV4`                                                                           |
+| HTTPS password      | Enter and confirm one, or leave blank to generate it                                  | `CODEX_WEB_INSTALL_PASSWORD` and optional `--web-username USER`                                                   |
+| Image               | Builds `codex-web:local` from the current checkout                                    | `--image IMAGE`; add `--skip-build` only when that image already exists                                           |
+| Public TLS          | Caddy obtains a public certificate on host ports 80/443                               | `--internal-tls` uses Caddy's private CA and permits custom `--http-port` and `--https-port` values               |
+| App binding         | Keeps port 8080 on `127.0.0.1`                                                        | `--listen-address` and `--web-port`; `0.0.0.0` bypasses HTTPS authentication and requires confirmation            |
+| Replacement prompts | Confirms before replacing the Codex container, proxy, SSH configuration, or Caddyfile | `--yes` accepts host keys and every replacement prompt; use only when all selected resource names are intentional |
+
+#### Common installer examples
+
+Existing key and custom domain:
+
+```bash
+./scripts/install-vm.sh \
+  --ssh-key /path/to/id_ed25519 \
+  --ssh-user codex \
+  --ssh-host 203.0.113.10 \
+  --domain codex.example.com \
+  --host-alias my-codex-vm \
+  --yes
+```
+
+Paste a key and choose `sslip.io` automatically:
+
+```bash
+./scripts/install-vm.sh \
+  --paste-key \
+  --key-save-path "$HOME/.config/codex-web/keys/my-codex-vm" \
+  --ssh-user codex \
+  --ssh-host 203.0.113.10 \
+  --public-ip 203.0.113.10
+```
+
+For unattended installation, provide the HTTPS password without putting it in
+shell history:
+
+```bash
+CODEX_WEB_INSTALL_PASSWORD='replace-with-a-long-password' \
+./scripts/install-vm.sh \
+  --ssh-key /path/to/id_ed25519 \
+  --ssh-user codex \
+  --ssh-host 203.0.113.10 \
+  --public-ip 203.0.113.10 \
+  --yes
+```
+
+Nondefault SSH and internal HTTPS ports:
+
+```bash
+CODEX_WEB_INSTALL_PASSWORD='replace-with-a-long-password' \
+./scripts/install-vm.sh \
+  --ssh-key /path/to/id_ed25519 \
+  --ssh-user codex \
+  --ssh-host 203.0.113.10 \
+  --ssh-port 2222 \
+  --domain codex.internal.example \
+  --internal-tls \
+  --http-port 18080 \
+  --https-port 18443
+```
+
+An internal Caddy certificate is not browser-trusted automatically. Use that
+mode only on a trusted network or behind a separately managed TLS ingress.
+
+#### Complete flag reference
+
+| Flag or environment variable | Default                                 | Purpose                                                                                                  |
+| ---------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `--ssh-key PATH`             | none                                    | Use an existing unencrypted SSH private-key file. Mutually exclusive with `--paste-key`.                 |
+| `--paste-key`                | interactive choice                      | Read a complete multiline private key from standard input without terminal echo.                         |
+| `--key-save-path PATH`       | `~/.config/codex-web/keys/<host-alias>` | Save a pasted, validated key with mode `0600`.                                                           |
+| `--ssh-user USER`            | prompted                                | Remote user that owns the existing Codex login and configuration.                                        |
+| `--ssh-host HOST`            | prompted                                | Remote SSH IP address or hostname.                                                                       |
+| `--ssh-port PORT`            | `22`                                    | Remote SSH server port.                                                                                  |
+| `--host-alias ALIAS`         | `codex-vm`                              | Concrete alias shown in **Settings > Connections**.                                                      |
+| `--listen-address ADDR`      | `127.0.0.1`                             | Host binding for the unauthenticated application port; allowed values are `127.0.0.1` and `0.0.0.0`.     |
+| `--web-port PORT`            | `8080`                                  | Host port mapped to the application.                                                                     |
+| `--domain DOMAIN`            | prompted                                | Existing hostname for the HTTPS endpoint. A leading `http://` or `https://` is removed.                  |
+| `--public-ip IPV4`           | auto-detected when possible             | Creates `<IPv4-with-dashes>.sslip.io` when `--domain` is omitted.                                        |
+| `--web-username USER`        | `codex`                                 | Caddy Basic Authentication username.                                                                     |
+| `CODEX_WEB_INSTALL_PASSWORD` | prompted or generated                   | Caddy Basic Authentication password. Prefer the environment to a command-line argument or shell history. |
+| `--http-port PORT`           | `80`                                    | Host HTTP port. Nonstandard values require `--internal-tls`.                                             |
+| `--https-port PORT`          | `443`                                   | Host TCP/UDP HTTPS port. Nonstandard values require `--internal-tls`.                                    |
+| `--container-name NAME`      | `codex-web`                             | Codex Web container name.                                                                                |
+| `--proxy-container NAME`     | `codex-web-proxy`                       | Caddy container name.                                                                                    |
+| `--proxy-network NAME`       | `codex-web-network`                     | Private Docker network shared by Codex Web and Caddy.                                                    |
+| `--data-volume NAME`         | `codex-web-data`                        | Persistent application and container Codex state.                                                        |
+| `--ssh-volume NAME`          | `codex-web-ssh`                         | Private SSH configuration and key volume.                                                                |
+| `--caddyfile-volume NAME`    | `codex-web-caddyfile`                   | Generated Caddyfile volume.                                                                              |
+| `--caddy-data-volume NAME`   | `codex-web-caddy-data`                  | Caddy certificates and TLS state.                                                                        |
+| `--caddy-config-volume NAME` | `codex-web-caddy-config`                | Caddy runtime configuration state.                                                                       |
+| `--caddy-image IMAGE`        | `caddy:2-alpine`                        | Caddy image to pull and run.                                                                             |
+| `--image IMAGE`              | `codex-web:local`                       | Codex Web image tag to build or reuse.                                                                   |
+| `--internal-tls`             | off                                     | Use Caddy's private CA and permit nonstandard public port values.                                        |
+| `--skip-build`               | off                                     | Require and reuse the named image without rebuilding.                                                    |
+| `--yes`                      | off                                     | Accept SSH host keys and all container/volume replacement prompts.                                       |
+| `-h`, `--help`               | —                                       | Print the current flag reference.                                                                        |
+
+All requested TCP host ports must be distinct. The installer rejects overlaps
+between the application, callback, HTTP, and HTTPS bindings before changing
+containers or volumes.
+
+Run `./scripts/install-vm.sh --help` to confirm the options supported by the
+checked-out script.
+
+#### Shared VM: existing gateway or Cloudflare Tunnel
+
+The standalone installer owns host TCP `80` and TCP/UDP `443`. Its read-only
+port preflight runs before it replaces containers or volumes. If another
+service owns one of those ports, it reports the listener and exits without
+stopping or modifying that service.
+
+On a shared VM:
+
+1. Keep the existing gateway and its backend containers unchanged.
+2. Run Codex Web and a dedicated authentication proxy on their own Docker
+   network with no public host ports.
+3. Point an independently configured Cloudflare Tunnel, or an explicit route
+   in the existing gateway, to that private authentication proxy.
+4. Keep callback ports `1455` and `1457` bound only to VM loopback.
+5. Verify the existing service and Codex Web before and after adding the new
+   route.
+
+The safe Cloudflare layout is:
+
+```text
+Browser
+  -> Cloudflare HTTPS
+  -> cloudflared (no published host ports)
+  -> private Codex authentication proxy
+  -> codex-web:8080
+```
+
+The installer intentionally does not create, edit, restart, or attach itself to
+an existing gateway or Cloudflare tunnel. This avoids taking ownership of
+unrelated services. Configure the tunnel's public hostname to use the dedicated
+proxy as its origin, and keep both containers on `codex-web-network`. Do not
+route Cloudflare directly to the unauthenticated application port.
+
 Clone the fork:
 
 ```bash
@@ -164,6 +398,7 @@ docker run --rm \
   --name codex-web \
   --publish 127.0.0.1:8080:8080 \
   --publish 127.0.0.1:1455:1455 \
+  --publish 127.0.0.1:1457:1457 \
   --volume codex-web-data:/data \
   --volume "$HOME/.config/codex-web/ssh:/run/secrets/codex-ssh:ro" \
   codex-web:local
@@ -171,8 +406,8 @@ docker run --rm \
 
 Open <http://127.0.0.1:8080>.
 
-Port `1455` is the local OpenAI OAuth callback bridge. Keep it bound to
-`127.0.0.1`; do not expose it publicly.
+Ports `1455` and `1457` are the local OpenAI OAuth callback bridges. Keep them
+bound to `127.0.0.1`; do not expose them publicly.
 
 On native Linux, the source SSH files must be readable by container UID
 `10001`. The entrypoint copies readable source files into the container user's
@@ -278,6 +513,7 @@ docker run --rm \
   --name codex-web \
   --publish 127.0.0.1:8080:8080 \
   --publish 127.0.0.1:1455:1455 \
+  --publish 127.0.0.1:1457:1457 \
   --volume codex-web-data:/data \
   --volume "$HOME/.config/codex-web/ssh:/run/secrets/codex-ssh:ro" \
   codex-web:local
@@ -528,7 +764,7 @@ egress and Cloud NAT with a reserved static outbound IP.
 
 - Never commit private SSH keys, `auth.json`, GitHub tokens, gcloud credential
   databases, generated secret archives, or populated CLI configuration.
-- Keep local ports `8080` and `1455` bound to `127.0.0.1`.
+- Keep local ports `8080`, `1455`, and `1457` bound to `127.0.0.1`.
 - Keep Cloud Run private behind IAP.
 - Grant IAP access only to intended users.
 - Verify SSH host fingerprints before adding them to `known_hosts`.

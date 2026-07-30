@@ -117,12 +117,16 @@ COPY --from=builder /app /app
 COPY docker/entrypoint.sh /usr/local/bin/codex-web-entrypoint
 COPY docker/oauth-callback-bridge.mjs /usr/local/lib/codex-web/oauth-callback-bridge.mjs
 COPY docker/state-sync.mjs /usr/local/lib/codex-web/state-sync.mjs
+RUN chmod 0755 /usr/local/bin/codex-web-entrypoint \
+  && chmod 0644 \
+    /usr/local/lib/codex-web/oauth-callback-bridge.mjs \
+    /usr/local/lib/codex-web/state-sync.mjs
 
 ENV CODEX_CLI_PATH=/usr/local/bin/codex \
   CODEX_HOME=/data/codex \
   CODEX_SSH_SOURCE_DIR=/run/secrets/codex-ssh \
   CODEX_WEB_OAUTH_CALLBACK_BRIDGE=1 \
-  CODEX_WEB_OAUTH_CALLBACK_PORT=1455 \
+  CODEX_WEB_OAUTH_CALLBACK_PORTS=1455,1457 \
   CODEX_WEB_SOFTWARE_DEVICE_KEYS=1 \
   CODEX_WEB_DATA_DIR=/data \
   CODEX_WEB_HOST=0.0.0.0 \
@@ -132,7 +136,7 @@ ENV CODEX_CLI_PATH=/usr/local/bin/codex \
 
 USER codex
 
-EXPOSE 8080 1455
+EXPOSE 8080 1455 1457
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \
