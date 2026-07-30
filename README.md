@@ -76,6 +76,32 @@ docker run --rm \
 
 then open <http://127.0.0.1:8080>.
 
+### persistent files
+
+The default Docker and VM installations map the named Docker volume
+`codex-web-data` to `/data` inside the container. Put container-local files that
+must survive a VM reboot or container replacement under `/data`, for example:
+
+```bash
+mkdir -p /data/workspaces/my-project
+cd /data/workspaces/my-project
+```
+
+Run those commands in the Codex Web terminal. Docker manages the corresponding
+VM-side directory; inspect its location without modifying it directly:
+
+```bash
+docker volume inspect --format '{{ .Mountpoint }}' codex-web-data
+```
+
+Do not use `/home/codex`, `/tmp`, or another container filesystem path for
+durable files. The read-only `/run/secrets/codex-ssh` mount is only for SSH
+configuration and keys.
+
+Projects opened through **Settings > Connections** are different: their files
+remain on the selected SSH machine's filesystem and do not use the web
+container's `/data` volume.
+
 the image contains:
 
 - the patched codex desktop browser client

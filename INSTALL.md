@@ -415,7 +415,23 @@ private `.ssh` directory with mode `0600`.
 
 ### Local persistence
 
-The named `codex-web-data` volume stores:
+The default mapping is:
+
+| VM storage                     | Container path                         | Purpose                              |
+| ------------------------------ | -------------------------------------- | ------------------------------------ |
+| Docker volume `codex-web-data` | `/data`                                | Persistent app state and local files |
+| Docker volume `codex-web-ssh`  | `/run/secrets/codex-ssh`               | Read-only SSH configuration and keys |
+| Container writable layer       | `/home/codex`, `/tmp`, and other paths | Temporary container files            |
+
+Put files that must survive a VM reboot or container replacement under
+`/data`. For example, in the Codex Web terminal:
+
+```bash
+mkdir -p /data/workspaces/my-project
+cd /data/workspaces/my-project
+```
+
+The named `codex-web-data` volume also stores:
 
 - OpenAI/Codex authentication;
 - app preferences and custom instructions;
@@ -425,9 +441,30 @@ The named `codex-web-data` volume stores:
 - gcloud authentication and configuration; and
 - global Git configuration.
 
+Docker manages the volume's directory on the VM. To see its current physical
+location, run:
+
+```bash
+docker volume inspect --format '{{ .Mountpoint }}' codex-web-data
+```
+
+Treat that path as a Docker implementation detail and do not edit it directly
+while the container is running. Use the Codex Web terminal to manage files
+under `/data`.
+
 Do not replace the named volume with an anonymous volume. Removing and
 recreating the container is safe; deleting `codex-web-data` removes the local
-persistent state.
+persistent state and any files saved under `/data`.
+
+Files in `/home/codex`, `/tmp`, or other paths outside `/data` are part of the
+container filesystem and are not guaranteed to survive container replacement.
+`/run/secrets/codex-ssh` is read-only and must not be used as workspace
+storage.
+
+This applies to work performed in the web container itself. When a project is
+opened through **Settings > Connections**, its repository, chats, credentials,
+and tools remain on that selected SSH machine's filesystem and survive
+according to that machine's storage, independently of `codex-web-data`.
 
 ### Local OpenAI, GitHub, and gcloud login
 
