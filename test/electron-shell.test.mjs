@@ -25,3 +25,24 @@ test("Electron shell rejects unsafe external URL protocols", async () => {
     /Unsupported external URL protocol/u,
   );
 });
+
+test("BrowserWindow preserves visibility through webContents lookup", () => {
+  const BrowserWindow = electron.BrowserWindow;
+  const browserWindow = new BrowserWindow({ show: false });
+  const resolvedWindow = BrowserWindow.fromWebContents(
+    browserWindow.webContents,
+  );
+
+  assert.ok(resolvedWindow);
+  assert.equal(typeof resolvedWindow.isVisible, "function");
+  assert.equal(resolvedWindow.isVisible(), false);
+
+  resolvedWindow.show();
+  assert.equal(resolvedWindow.isVisible(), true);
+
+  resolvedWindow.hide();
+  assert.equal(resolvedWindow.isVisible(), false);
+
+  resolvedWindow.destroy();
+  assert.equal(resolvedWindow.isVisible(), false);
+});

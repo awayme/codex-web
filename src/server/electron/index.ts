@@ -428,6 +428,7 @@ class BrowserWindow {
   static focusedWindow: BrowserWindow | null = null;
   id: number;
   private destroyed = false;
+  private visible: boolean;
   private title = "Codex";
   private bounds = { x: 0, y: 0, width: 1280, height: 820 };
   webContents: Record<string, unknown>;
@@ -436,6 +437,13 @@ class BrowserWindow {
   constructor(...args: unknown[]) {
     log("new BrowserWindow", args);
     this.id = BrowserWindow.nextId++;
+    const options = args[0];
+    this.visible = !(
+      typeof options === "object" &&
+      options !== null &&
+      "show" in options &&
+      (options as { show?: unknown }).show === false
+    );
     this.emitter = createEmitterStub(`BrowserWindow#${this.id}`);
 
     const webContentsEmitter = createEmitterStub(
@@ -568,6 +576,7 @@ class BrowserWindow {
   destroy(): void {
     log(`BrowserWindow#${this.id}.destroy`, []);
     this.destroyed = true;
+    this.visible = false;
     if (BrowserWindow.focusedWindow === this) {
       BrowserWindow.focusedWindow = null;
     }
@@ -582,6 +591,11 @@ class BrowserWindow {
   isFocused(): boolean {
     log(`BrowserWindow#${this.id}.isFocused`, []);
     return BrowserWindow.focusedWindow === this && !this.destroyed;
+  }
+
+  isVisible(): boolean {
+    log(`BrowserWindow#${this.id}.isVisible`, []);
+    return this.visible && !this.destroyed;
   }
 
   removeMenu(): void {
@@ -620,10 +634,21 @@ class BrowserWindow {
 
   show(): void {
     log(`BrowserWindow#${this.id}.show`, []);
+    if (this.destroyed) {
+      return;
+    }
+    this.visible = true;
+    BrowserWindow.focusedWindow = this;
+    this.emitter.emit("show");
   }
 
   hide(): void {
     log(`BrowserWindow#${this.id}.hide`, []);
+    this.visible = false;
+    if (BrowserWindow.focusedWindow === this) {
+      BrowserWindow.focusedWindow = null;
+    }
+    this.emitter.emit("hide");
   }
 
   focus(): void {
