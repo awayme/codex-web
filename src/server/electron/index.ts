@@ -428,6 +428,7 @@ class BrowserWindow {
   static focusedWindow: BrowserWindow | null = null;
   id: number;
   private destroyed = false;
+  private readyToShowEmitted = false;
   private visible: boolean;
   private title = "Codex";
   private bounds = { x: 0, y: 0, width: 1280, height: 820 };
@@ -467,9 +468,11 @@ class BrowserWindow {
         loadURL: async (url: string): Promise<void> => {
           log(`BrowserWindow#${this.id}.webContents.loadURL`, [url]);
           (this.webContents.mainFrame as { url: string }).url = url;
+          this.emitReadyToShow();
         },
         loadFile: async (...loadFileArgs: unknown[]): Promise<void> => {
           log(`BrowserWindow#${this.id}.webContents.loadFile`, loadFileArgs);
+          this.emitReadyToShow();
         },
         openDevTools: (...openDevToolsArgs: unknown[]): void => {
           log(
@@ -503,7 +506,9 @@ class BrowserWindow {
     );
 
     BrowserWindow.allWindows.push(this);
-    BrowserWindow.focusedWindow = this;
+    if (this.visible) {
+      BrowserWindow.focusedWindow = this;
+    }
     return new Proxy(this, {
       get: (target, prop) => {
         if (prop in target) {
@@ -563,6 +568,19 @@ class BrowserWindow {
   async loadURL(url: string): Promise<void> {
     log(`BrowserWindow#${this.id}.loadURL`, [url]);
     (this.webContents.mainFrame as { url: string }).url = url;
+    this.emitReadyToShow();
+  }
+
+  private emitReadyToShow(): void {
+    if (this.destroyed || this.readyToShowEmitted) {
+      return;
+    }
+    this.readyToShowEmitted = true;
+    queueMicrotask(() => {
+      if (!this.destroyed) {
+        this.emitter.emit("ready-to-show");
+      }
+    });
   }
 
   close(): void {

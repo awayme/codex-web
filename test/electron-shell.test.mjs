@@ -46,3 +46,27 @@ test("BrowserWindow preserves visibility through webContents lookup", () => {
   resolvedWindow.destroy();
   assert.equal(resolvedWindow.isVisible(), false);
 });
+
+test("BrowserWindow emits ready-to-show after its first load", async () => {
+  const BrowserWindow = electron.BrowserWindow;
+  const browserWindow = new BrowserWindow({ show: false });
+  let readyToShowCount = 0;
+
+  browserWindow.once("ready-to-show", () => {
+    readyToShowCount += 1;
+    browserWindow.show();
+  });
+
+  await browserWindow.loadURL("http://localhost:5175/");
+  await Promise.resolve();
+
+  assert.equal(readyToShowCount, 1);
+  assert.equal(browserWindow.isVisible(), true);
+  assert.equal(browserWindow.isFocused(), true);
+
+  await browserWindow.loadURL("http://localhost:5175/again");
+  await Promise.resolve();
+  assert.equal(readyToShowCount, 1);
+
+  browserWindow.destroy();
+});

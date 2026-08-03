@@ -57,3 +57,19 @@ test("VM installer help and installation guide cover every supported flag", asyn
     );
   }
 });
+
+test("VM installer uses cookie sessions for HTTP and WebSocket authentication", async () => {
+  const installer = await fs.readFile(
+    new URL("../scripts/install-vm.sh", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(installer, /handle \/__codex_web_login/u);
+  assert.match(installer, /handle \/__codex_web_logout/u);
+  assert.match(installer, /Secure; HttpOnly; SameSite=Strict/u);
+  assert.match(
+    installer,
+    /@public_pwa path \/manifest\.json \/assets\/pwa-icon-512\.png/u,
+  );
+  assert.match(installer, /\[\[ "\$unauthenticated_status" == "303" \]\]/u);
+});

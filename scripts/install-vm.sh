@@ -304,6 +304,11 @@ generate_password() {
   printf '\n'
 }
 
+generate_session_token() {
+  od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+  printf '\n'
+}
+
 save_pasted_private_key() {
   local destination="${1:-}"
   local default_destination="$2"
@@ -727,6 +732,7 @@ web_password_hash="$(
     docker_run run --rm --interactive "$caddy_image" caddy hash-password
 )"
 [[ -n "$web_password_hash" ]] || die "could not hash the HTTPS password"
+web_session_token="$(generate_session_token)"
 
 cat >"$temporary_dir/config" <<EOF
 Host $host_alias
@@ -741,13 +747,31 @@ EOF
 
 {
   printf '%s {\n' "$domain"
-  printf '  basic_auth {\n'
-  printf '    %s %s\n' "$web_username" "$web_password_hash"
+  printf '  @public_pwa path /manifest.json /assets/pwa-icon-512.png\n'
+  printf '  handle @public_pwa {\n'
+  printf '    reverse_proxy %s:8080\n' "$container_name"
+  printf '  }\n'
+  printf '  handle /__codex_web_logout {\n'
+  printf '    header Set-Cookie "codex_web_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict"\n'
+  printf '    redir * /__codex_web_login 303\n'
+  printf '  }\n'
+  printf '  @codex_web_session header_regexp codex_web_session Cookie "(?:^|;[[:space:]]*)codex_web_session=%s(?:;|$)"\n' "$web_session_token"
+  printf '  handle @codex_web_session {\n'
+  printf '    reverse_proxy %s:8080\n' "$container_name"
+  printf '  }\n'
+  printf '  handle /__codex_web_login {\n'
+  printf '    basic_auth {\n'
+  printf '      %s %s\n' "$web_username" "$web_password_hash"
+  printf '    }\n'
+  printf '    header Set-Cookie "codex_web_session=%s; Path=/; Secure; HttpOnly; SameSite=Strict"\n' "$web_session_token"
+  printf '    redir * / 303\n'
+  printf '  }\n'
+  printf '  handle {\n'
+  printf '    redir * /__codex_web_login 303\n'
   printf '  }\n'
   if ((internal_tls)); then
     printf '  tls internal\n'
   fi
-  printf '  reverse_proxy %s:8080\n' "$container_name"
   printf '}\n'
 } >"$temporary_dir/Caddyfile"
 
@@ -886,9 +910,12 @@ if [[ "$https_port" != "443" ]]; then
 fi
 proxy_curl_options=(
   --fail
+  --location
   --silent
   --show-error
   --user "$web_username:$web_password"
+  --cookie-jar "$temporary_dir/proxy-cookies"
+  --cookie "$temporary_dir/proxy-cookies"
   --resolve "$domain:$https_port:127.0.0.1"
 )
 if ((internal_tls)); then
@@ -914,7 +941,7 @@ unauthenticated_status="$(
     --resolve "$domain:$https_port:127.0.0.1" \
     "$https_url/__backend/readyz"
 )"
-[[ "$unauthenticated_status" == "401" ]] ||
+[[ "$unauthenticated_status" == "303" ]] ||
   die "the HTTPS endpoint is not enforcing authentication"
 
 printf '\nCodex Web is installed and the SSH connection "%s" is ready.\n' "$host_alias"

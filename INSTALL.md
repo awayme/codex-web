@@ -192,10 +192,15 @@ been captured and validated does the installer ask where to save it. It uses
 mode `0600` and defaults to `~/.config/codex-web/keys/codex-vm`. Only the
 protected Docker volume is mounted into the running web container.
 
-Caddy listens publicly on ports `80` and `443`, redirects HTTP to HTTPS, checks
-the configured username and password, and proxies authenticated WebSocket and
-HTTP traffic to Codex Web over a private Docker network. The Codex Web
-application port remains bound to `127.0.0.1:8080`.
+Caddy listens publicly on ports `80` and `443` and redirects HTTP to HTTPS.
+Unauthenticated browser requests are sent to `/__codex_web_login`, where Caddy
+checks the configured username and password once and sets a secure, HttpOnly,
+SameSite session cookie. That cookie protects both HTTP and WebSocket traffic
+to Codex Web over the private Docker network and avoids browser Basic Auth
+startup races. Open `/__codex_web_logout` to clear it. Only the non-sensitive
+PWA manifest and icon are public because browsers intentionally fetch web
+manifests without credentials. The Codex Web application port remains bound to
+`127.0.0.1:8080`.
 
 OpenAI's registered desktop callback remains a loopback URL and is not routed
 through the public domain. The installer binds both supported callback ports,
@@ -305,37 +310,37 @@ mode only on a trusted network or behind a separately managed TLS ingress.
 
 #### Complete flag reference
 
-| Flag or environment variable | Default                                 | Purpose                                                                                                  |
-| ---------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `--ssh-key PATH`             | none                                    | Use an existing unencrypted SSH private-key file. Mutually exclusive with `--paste-key`.                 |
-| `--paste-key`                | interactive choice                      | Read a complete multiline private key from standard input without terminal echo.                         |
-| `--key-save-path PATH`       | `~/.config/codex-web/keys/<host-alias>` | Save a pasted, validated key with mode `0600`.                                                           |
-| `--ssh-user USER`            | prompted                                | Remote user that owns the existing Codex login and configuration.                                        |
-| `--ssh-host HOST`            | prompted                                | Remote SSH IP address or hostname.                                                                       |
-| `--ssh-port PORT`            | `22`                                    | Remote SSH server port.                                                                                  |
-| `--host-alias ALIAS`         | `codex-vm`                              | Concrete alias shown in **Settings > Connections**.                                                      |
-| `--listen-address ADDR`      | `127.0.0.1`                             | Host binding for the unauthenticated application port; allowed values are `127.0.0.1` and `0.0.0.0`.     |
-| `--web-port PORT`            | `8080`                                  | Host port mapped to the application.                                                                     |
-| `--domain DOMAIN`            | prompted                                | Existing hostname for the HTTPS endpoint. A leading `http://` or `https://` is removed.                  |
-| `--public-ip IPV4`           | auto-detected when possible             | Creates `<IPv4-with-dashes>.sslip.io` when `--domain` is omitted.                                        |
-| `--web-username USER`        | `codex`                                 | Caddy Basic Authentication username.                                                                     |
-| `CODEX_WEB_INSTALL_PASSWORD` | prompted or generated                   | Caddy Basic Authentication password. Prefer the environment to a command-line argument or shell history. |
-| `--http-port PORT`           | `80`                                    | Host HTTP port. Nonstandard values require `--internal-tls`.                                             |
-| `--https-port PORT`          | `443`                                   | Host TCP/UDP HTTPS port. Nonstandard values require `--internal-tls`.                                    |
-| `--container-name NAME`      | `codex-web`                             | Codex Web container name.                                                                                |
-| `--proxy-container NAME`     | `codex-web-proxy`                       | Caddy container name.                                                                                    |
-| `--proxy-network NAME`       | `codex-web-network`                     | Private Docker network shared by Codex Web and Caddy.                                                    |
-| `--data-volume NAME`         | `codex-web-data`                        | Persistent application and container Codex state.                                                        |
-| `--ssh-volume NAME`          | `codex-web-ssh`                         | Private SSH configuration and key volume.                                                                |
-| `--caddyfile-volume NAME`    | `codex-web-caddyfile`                   | Generated Caddyfile volume.                                                                              |
-| `--caddy-data-volume NAME`   | `codex-web-caddy-data`                  | Caddy certificates and TLS state.                                                                        |
-| `--caddy-config-volume NAME` | `codex-web-caddy-config`                | Caddy runtime configuration state.                                                                       |
-| `--caddy-image IMAGE`        | `caddy:2-alpine`                        | Caddy image to pull and run.                                                                             |
-| `--image IMAGE`              | `codex-web:local`                       | Codex Web image tag to build or reuse.                                                                   |
-| `--internal-tls`             | off                                     | Use Caddy's private CA and permit nonstandard public port values.                                        |
-| `--skip-build`               | off                                     | Require and reuse the named image without rebuilding.                                                    |
-| `--yes`                      | off                                     | Accept SSH host keys and all container/volume replacement prompts.                                       |
-| `-h`, `--help`               | —                                       | Print the current flag reference.                                                                        |
+| Flag or environment variable | Default                                 | Purpose                                                                                                                 |
+| ---------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `--ssh-key PATH`             | none                                    | Use an existing unencrypted SSH private-key file. Mutually exclusive with `--paste-key`.                                |
+| `--paste-key`                | interactive choice                      | Read a complete multiline private key from standard input without terminal echo.                                        |
+| `--key-save-path PATH`       | `~/.config/codex-web/keys/<host-alias>` | Save a pasted, validated key with mode `0600`.                                                                          |
+| `--ssh-user USER`            | prompted                                | Remote user that owns the existing Codex login and configuration.                                                       |
+| `--ssh-host HOST`            | prompted                                | Remote SSH IP address or hostname.                                                                                      |
+| `--ssh-port PORT`            | `22`                                    | Remote SSH server port.                                                                                                 |
+| `--host-alias ALIAS`         | `codex-vm`                              | Concrete alias shown in **Settings > Connections**.                                                                     |
+| `--listen-address ADDR`      | `127.0.0.1`                             | Host binding for the unauthenticated application port; allowed values are `127.0.0.1` and `0.0.0.0`.                    |
+| `--web-port PORT`            | `8080`                                  | Host port mapped to the application.                                                                                    |
+| `--domain DOMAIN`            | prompted                                | Existing hostname for the HTTPS endpoint. A leading `http://` or `https://` is removed.                                 |
+| `--public-ip IPV4`           | auto-detected when possible             | Creates `<IPv4-with-dashes>.sslip.io` when `--domain` is omitted.                                                       |
+| `--web-username USER`        | `codex`                                 | Caddy login-endpoint Basic Authentication username.                                                                     |
+| `CODEX_WEB_INSTALL_PASSWORD` | prompted or generated                   | Caddy login-endpoint Basic Authentication password. Prefer the environment to a command-line argument or shell history. |
+| `--http-port PORT`           | `80`                                    | Host HTTP port. Nonstandard values require `--internal-tls`.                                                            |
+| `--https-port PORT`          | `443`                                   | Host TCP/UDP HTTPS port. Nonstandard values require `--internal-tls`.                                                   |
+| `--container-name NAME`      | `codex-web`                             | Codex Web container name.                                                                                               |
+| `--proxy-container NAME`     | `codex-web-proxy`                       | Caddy container name.                                                                                                   |
+| `--proxy-network NAME`       | `codex-web-network`                     | Private Docker network shared by Codex Web and Caddy.                                                                   |
+| `--data-volume NAME`         | `codex-web-data`                        | Persistent application and container Codex state.                                                                       |
+| `--ssh-volume NAME`          | `codex-web-ssh`                         | Private SSH configuration and key volume.                                                                               |
+| `--caddyfile-volume NAME`    | `codex-web-caddyfile`                   | Generated Caddyfile volume.                                                                                             |
+| `--caddy-data-volume NAME`   | `codex-web-caddy-data`                  | Caddy certificates and TLS state.                                                                                       |
+| `--caddy-config-volume NAME` | `codex-web-caddy-config`                | Caddy runtime configuration state.                                                                                      |
+| `--caddy-image IMAGE`        | `caddy:2-alpine`                        | Caddy image to pull and run.                                                                                            |
+| `--image IMAGE`              | `codex-web:local`                       | Codex Web image tag to build or reuse.                                                                                  |
+| `--internal-tls`             | off                                     | Use Caddy's private CA and permit nonstandard public port values.                                                       |
+| `--skip-build`               | off                                     | Require and reuse the named image without rebuilding.                                                                   |
+| `--yes`                      | off                                     | Accept SSH host keys and all container/volume replacement prompts.                                                      |
+| `-h`, `--help`               | —                                       | Print the current flag reference.                                                                                       |
 
 All requested TCP host ports must be distinct. The installer rejects overlaps
 between the application, callback, HTTP, and HTTPS bindings before changing

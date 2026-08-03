@@ -137,6 +137,13 @@ Interactive choices cover:
 - an entered or generated HTTPS password; and
 - public Caddy TLS or private/internal TLS with custom ports.
 
+Caddy uses that username and password only on its dedicated login endpoint.
+After a successful browser prompt it sets a secure, HttpOnly, SameSite session
+cookie, so the app's HTTP requests and WebSocket share one reliable browser
+session. Open `/__codex_web_logout` on the same domain to clear that session.
+The non-sensitive PWA manifest and icon remain public because browsers fetch
+web manifests without credentials.
+
 The script preflights every required host port before changing containers or
 volumes. If an existing service owns ports 80/443, it exits without touching
 that service; use the documented shared-gateway or Cloudflare Tunnel layout
