@@ -45,7 +45,7 @@ FROM ${NODE_IMAGE} AS runtime
 
 ARG CODEX_VERSION=0.145.0
 ARG GCLOUD_VERSION=578.0.0-0
-ARG GH_VERSION=2.96.0
+ARG GH_VERSION=2.97.0
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
