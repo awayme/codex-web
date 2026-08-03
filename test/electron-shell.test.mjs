@@ -6,6 +6,7 @@ import electron from "../src/server/electron/index.js";
 test("Electron shell forwards HTTPS URLs to the browser renderer", async () => {
   let received;
   globalThis.__codexElectronIpcBridge = {
+    ...globalThis.__codexElectronIpcBridge,
     broadcastToRenderer(message) {
       received = message;
     },
@@ -69,4 +70,38 @@ test("BrowserWindow emits ready-to-show after its first load", async () => {
   assert.equal(readyToShowCount, 1);
 
   browserWindow.destroy();
+});
+
+test("powerMonitor reports stable AC power in the hosted shell", () => {
+  assert.equal(electron.powerMonitor.isOnBatteryPower(), false);
+});
+
+test("renderer sessions receive isolated destroyed lifecycles", () => {
+  const channel = "codex_web:test-renderer-session";
+  let sender;
+  let destroyedCount = 0;
+  const listener = (event) => {
+    sender = event.sender;
+    sender.once("destroyed", () => {
+      destroyedCount += 1;
+    });
+  };
+  electron.ipcMain.on(channel, listener);
+
+  globalThis.__codexElectronIpcBridge.handleRendererSend(
+    channel,
+    [],
+    undefined,
+    "renderer-session-test",
+  );
+
+  assert.equal(sender.id, 1001);
+  assert.equal(sender.isDestroyed(), false);
+  globalThis.__codexElectronIpcBridge.handleRendererDisconnected(
+    "renderer-session-test",
+  );
+  assert.equal(sender.isDestroyed(), true);
+  assert.equal(destroyedCount, 1);
+
+  electron.ipcMain.off(channel, listener);
 });

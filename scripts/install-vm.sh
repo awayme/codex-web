@@ -760,11 +760,13 @@ EOF
   printf '    reverse_proxy %s:8080\n' "$container_name"
   printf '  }\n'
   printf '  handle /__codex_web_login {\n'
-  printf '    basic_auth {\n'
-  printf '      %s %s\n' "$web_username" "$web_password_hash"
+  printf '    route {\n'
+  printf '      basic_auth {\n'
+  printf '        %s %s\n' "$web_username" "$web_password_hash"
+  printf '      }\n'
+  printf '      header Set-Cookie "codex_web_session=%s; Path=/; Secure; HttpOnly; SameSite=Strict"\n' "$web_session_token"
+  printf '      redir * / 303\n'
   printf '    }\n'
-  printf '    header Set-Cookie "codex_web_session=%s; Path=/; Secure; HttpOnly; SameSite=Strict"\n' "$web_session_token"
-  printf '    redir * / 303\n'
   printf '  }\n'
   printf '  handle {\n'
   printf '    redir * /__codex_web_login 303\n'

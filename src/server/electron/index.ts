@@ -50,17 +50,21 @@ type IpcMainBridgeState = {
     channel: string,
     args: unknown[],
     sourceUrl?: string,
+    rendererSessionId?: string,
   ) => Promise<unknown>;
+  handleRendererDisconnected?: (rendererSessionId: string) => void;
   handleRendererPostMessage?: (
     channel: string,
     message: unknown,
     ports: StubMessagePort[],
     sourceUrl?: string,
+    rendererSessionId?: string,
   ) => void;
   handleRendererSend?: (
     channel: string,
     args: unknown[],
     sourceUrl?: string,
+    rendererSessionId?: string,
   ) => void;
 };
 
@@ -198,11 +202,72 @@ const rendererWebContents: StubWebContents = {
   },
 };
 
-function createIpcMainEvent(ports: StubMessagePort[] = []): IpcMainEvent {
-  const sender =
-    (BrowserWindow.fromWebContents(rendererWebContents)
-      ?.webContents as unknown as StubWebContents | undefined) ??
-    rendererWebContents;
+const rendererSessionWebContents = new Map<
+  string,
+  { destroy: () => void; webContents: StubWebContents }
+>();
+
+function getRendererSessionWebContents(
+  rendererSessionId?: string,
+): StubWebContents {
+  if (!rendererSessionId) {
+    return rendererWebContents;
+  }
+  const existing = rendererSessionWebContents.get(rendererSessionId);
+  if (existing) {
+    return existing.webContents;
+  }
+
+  const emitter = createEmitterStub(`ipcMainEvent.sender.${rendererSessionId}`);
+  let destroyed = false;
+  const mainFrame = { url: rendererUrl };
+  const webContents = new Proxy(
+    {
+      id: 1001,
+      mainFrame,
+      getURL: () => mainFrame.url,
+      isDestroyed: () => destroyed,
+      off: emitter.off,
+      on: emitter.on,
+      once: emitter.once,
+      removeListener: emitter.removeListener,
+      send: (channel: string, ...args: unknown[]): void => {
+        getIpcMainBridgeState().broadcastToRenderer?.({
+          type: "ipc-main-event",
+          channel,
+          args,
+        });
+      },
+    } as StubWebContents,
+    {
+      get(target, property) {
+        if (property in target) {
+          return target[property as keyof StubWebContents];
+        }
+        const primaryWebContents = BrowserWindow.getAllWindows()[0]
+          ?.webContents as Record<PropertyKey, unknown> | undefined;
+        return primaryWebContents?.[property];
+      },
+    },
+  );
+  rendererSessionWebContents.set(rendererSessionId, {
+    webContents,
+    destroy: () => {
+      if (destroyed) {
+        return;
+      }
+      destroyed = true;
+      emitter.emit("destroyed");
+    },
+  });
+  return webContents;
+}
+
+function createIpcMainEvent(
+  ports: StubMessagePort[] = [],
+  rendererSessionId?: string,
+): IpcMainEvent {
+  const sender = getRendererSessionWebContents(rendererSessionId);
   const event: IpcMainEvent = {
     returnValue: undefined,
     processId: 1,
@@ -240,7 +305,11 @@ function createIpcMainStub(): {
 
   const pendingPostMessages = new Map<
     string,
-    Array<{ message: unknown; ports: StubMessagePort[] }>
+    Array<{
+      message: unknown;
+      ports: StubMessagePort[];
+      rendererSessionId?: string;
+    }>
   >();
   const registeredPostMessageChannels = new Set<string>();
 
@@ -248,35 +317,55 @@ function createIpcMainStub(): {
     channel: string,
     message: unknown,
     ports: StubMessagePort[],
+    _sourceUrl?: string,
+    rendererSessionId?: string,
   ): void => {
     if (registeredPostMessageChannels.has(channel)) {
-      emitter.emit(channel, createIpcMainEvent(ports), message);
+      emitter.emit(
+        channel,
+        createIpcMainEvent(ports, rendererSessionId),
+        message,
+      );
       return;
     }
     const pending = pendingPostMessages.get(channel) ?? [];
-    pending.push({ message, ports });
+    pending.push({ message, ports, rendererSessionId });
     pendingPostMessages.set(channel, pending);
   };
 
   bridgeState.handleRendererInvoke = async (
     channel: string,
     args: unknown[],
+    _sourceUrl?: string,
+    rendererSessionId?: string,
   ): Promise<unknown> => {
     const handler = handlers.get(channel);
     if (!handler) {
       throw new Error(`[electron-main-stub] No ipcMain.handle for ${channel}`);
     }
-    const event = createIpcMainEvent();
+    const event = createIpcMainEvent([], rendererSessionId);
     return await Promise.resolve(handler(event, ...args));
   };
 
   bridgeState.handleRendererSend = (
     channel: string,
     args: unknown[],
-    sourceUrl?: string,
+    _sourceUrl?: string,
+    rendererSessionId?: string,
   ): void => {
-    const event = createIpcMainEvent();
+    const event = createIpcMainEvent([], rendererSessionId);
     emitter.emit(channel, event, ...args);
+  };
+
+  bridgeState.handleRendererDisconnected = (
+    rendererSessionId: string,
+  ): void => {
+    const session = rendererSessionWebContents.get(rendererSessionId);
+    if (!session) {
+      return;
+    }
+    rendererSessionWebContents.delete(rendererSessionId);
+    session.destroy();
   };
 
   return {
@@ -286,8 +375,12 @@ function createIpcMainStub(): {
       const pending = pendingPostMessages.get(channel);
       if (pending) {
         pendingPostMessages.delete(channel);
-        for (const { message, ports } of pending) {
-          emitter.emit(channel, createIpcMainEvent(ports), message);
+        for (const { message, ports, rendererSessionId } of pending) {
+          emitter.emit(
+            channel,
+            createIpcMainEvent(ports, rendererSessionId),
+            message,
+          );
         }
       }
       return result;
@@ -888,7 +981,13 @@ const nativeImage = {
     };
   },
 };
-const powerMonitor = createEmitterStub("powerMonitor");
+const powerMonitor = {
+  ...createEmitterStub("powerMonitor"),
+  isOnBatteryPower(): boolean {
+    log("powerMonitor.isOnBatteryPower", []);
+    return false;
+  },
+};
 const screen = {
   ...createEmitterStub("screen"),
   getAllDisplays(): Array<{

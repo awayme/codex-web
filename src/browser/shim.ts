@@ -108,6 +108,7 @@ type MainToRendererMessage =
     };
 
 const RECONNECT_DELAY_MS = 1_000;
+const RENDERER_TAKEOVER_CLOSE_CODE = 4001;
 
 type MemoryNavigationChange = {
   action: "POP" | "PUSH" | "REPLACE";
@@ -738,6 +739,36 @@ function flushOutboundQueue(): void {
   }
 }
 
+function showRendererTakeoverNotice(): void {
+  if (document.querySelector("[data-codex-web-renderer-takeover]")) {
+    return;
+  }
+  const notice = document.createElement("div");
+  notice.dataset.codexWebRendererTakeover = "true";
+  notice.setAttribute("role", "alert");
+  notice.style.cssText = [
+    "position:fixed",
+    "inset:0",
+    "z-index:2147483647",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "background:#f7f7f5",
+    "color:#202123",
+    "font:16px/1.5 system-ui,sans-serif",
+  ].join(";");
+  notice.innerHTML =
+    '<div style="max-width:32rem;padding:2rem;text-align:center">' +
+    '<h1 style="font-size:1.25rem;margin:0 0 .75rem">Codex is open in another tab</h1>' +
+    '<p style="margin:0 0 1.25rem">This tab was disconnected so the newer tab can use the Codex session.</p>' +
+    '<button type="button" style="border:0;border-radius:.5rem;background:#111;color:#fff;padding:.65rem 1rem;cursor:pointer">Use Codex in this tab</button>' +
+    "</div>";
+  notice.querySelector("button")?.addEventListener("click", () => {
+    window.location.reload();
+  });
+  document.body.append(notice);
+}
+
 function scheduleReconnect(): void {
   if (reconnectTimeoutId !== null) {
     return;
@@ -774,15 +805,21 @@ function ensureSocket(): void {
       );
     }
   });
-  socket.addEventListener("close", () => {
+  socket.addEventListener("close", (event) => {
     for (const port of messagePorts.values()) {
       port.close();
     }
     messagePorts.clear();
+    if (event.code === RENDERER_TAKEOVER_CLOSE_CODE) {
+      showRendererTakeoverNotice();
+      return;
+    }
     scheduleReconnect();
   });
   socket.addEventListener("error", () => {
-    scheduleReconnect();
+    // A WebSocket error is followed by a close event. Only the close event has
+    // the status code needed to distinguish a transient disconnect from an
+    // intentional renderer takeover.
   });
 }
 

@@ -23,6 +23,8 @@ import {
   remoteControlOAuthCompleteHtml,
   REMOTE_CONTROL_OAUTH_COMPLETE_PATH,
 } from "./oauth-callback";
+import { RendererSessionCoordinator } from "./renderer-session";
+import { WebSocketMessagePort } from "./websocket-message-port";
 
 type ServerOptions = {
   host: string;
@@ -158,91 +160,12 @@ type WorkspaceDirectoryEntries = {
   entries: WorkspaceDirectoryEntry[];
 };
 
-type MessagePortListener = (...args: unknown[]) => void;
-
 type BridgedMessagePort = {
   close: () => void;
-  on: (event: string, listener: MessagePortListener) => unknown;
+  on: (event: string, listener: (...args: unknown[]) => void) => unknown;
   postMessage: (message: unknown) => void;
   start: () => void;
 };
-
-class WebSocketMessagePort implements BridgedMessagePort {
-  private closed = false;
-  private readonly listeners = new Map<string, Set<MessagePortListener>>();
-
-  constructor(
-    private readonly portId: string,
-    private readonly sendToRenderer: (message: MainToRendererMessage) => void,
-    private readonly onClosed: () => void,
-  ) {}
-
-  on(event: string, listener: MessagePortListener): this {
-    const listeners = this.listeners.get(event) ?? new Set();
-    listeners.add(listener);
-    this.listeners.set(event, listeners);
-
-    return this;
-  }
-
-  postMessage(data: unknown): void {
-    if (this.closed) {
-      return;
-    }
-    this.sendToRenderer({
-      type: "message-port-message",
-      portId: this.portId,
-      data,
-    });
-  }
-
-  start(): void {}
-
-  close(): void {
-    if (!this.markClosed()) {
-      return;
-    }
-    this.sendToRenderer({
-      type: "message-port-close",
-      portId: this.portId,
-    });
-  }
-
-  receiveMessage(data: unknown): void {
-    if (this.closed) {
-      return;
-    }
-    const listeners = this.listeners.get("message");
-    if (!listeners || listeners.size === 0) {
-      return;
-    }
-    for (const listener of listeners) {
-      listener({ data });
-    }
-  }
-
-  disconnect(): void {
-    if (!this.markClosed()) {
-      return;
-    }
-    this.emit("close");
-  }
-
-  private emit(event: string, ...args: unknown[]): void {
-    for (const listener of this.listeners.get(event) ?? []) {
-      listener(...args);
-    }
-  }
-
-  private markClosed(): boolean {
-    if (this.closed) {
-      return false;
-    }
-    this.closed = true;
-    this.onClosed();
-    return true;
-  }
-}
 
 function workspaceDirectoryEntryTypeRank(
   entry: WorkspaceDirectoryEntry,
@@ -271,14 +194,26 @@ function compareWorkspaceDirectoryEntries(
 
 type IpcMainBridgeState = {
   broadcastToRenderer?: (message: MainToRendererMessage) => void;
-  handleRendererInvoke?: (channel: string, args: unknown[]) => Promise<unknown>;
+  handleRendererDisconnected?: (rendererSessionId: string) => void;
+  handleRendererInvoke?: (
+    channel: string,
+    args: unknown[],
+    sourceUrl?: string,
+    rendererSessionId?: string,
+  ) => Promise<unknown>;
   handleRendererPostMessage?: (
     channel: string,
     message: unknown,
     ports: BridgedMessagePort[],
     sourceUrl?: string,
+    rendererSessionId?: string,
   ) => void;
-  handleRendererSend?: (channel: string, args: unknown[]) => void;
+  handleRendererSend?: (
+    channel: string,
+    args: unknown[],
+    sourceUrl?: string,
+    rendererSessionId?: string,
+  ) => void;
 };
 
 function printUsage(): void {
@@ -425,7 +360,7 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   const bridgeState = getIpcMainBridgeState();
   const app = Fastify({ logger: false });
   const websocketServer = new WebSocketServer({ noServer: true });
-  const sockets = new Set<WebSocket>();
+  const rendererSessions = new RendererSessionCoordinator();
   const startedAt = Date.now();
 
   await app.register(fastifyMultipart, {
@@ -529,18 +464,26 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   });
 
   bridgeState.broadcastToRenderer = (message: MainToRendererMessage): void => {
-    const payload = JSON.stringify(message);
-    for (const socket of sockets) {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(payload);
-      }
-    }
+    rendererSessions.send(JSON.stringify(message));
   };
 
   websocketServer.on("connection", (socket) => {
-    sockets.add(socket);
-
+    const rendererSessionId = randomUUID();
     const messagePorts = new Map<string, WebSocketMessagePort>();
+    let disposed = false;
+    const disposeRenderer = (): void => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      for (const port of messagePorts.values()) {
+        port.disconnect();
+      }
+      messagePorts.clear();
+      bridgeState.handleRendererDisconnected?.(rendererSessionId);
+    };
+    rendererSessions.claim(socket, disposeRenderer);
+
     const dispatchPostMessage = (
       channel: string,
       message: unknown,
@@ -549,7 +492,7 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
     ): void => {
       const handler = bridgeState.handleRendererPostMessage;
       if (handler) {
-        handler(channel, message, ports, sourceUrl);
+        handler(channel, message, ports, sourceUrl, rendererSessionId);
         return;
       }
 
@@ -562,11 +505,8 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
     };
 
     socket.on("close", () => {
-      sockets.delete(socket);
-      for (const port of messagePorts.values()) {
-        port.disconnect();
-      }
-      messagePorts.clear();
+      rendererSessions.release(socket);
+      disposeRenderer();
     });
 
     socket.on("message", (rawData) => {
@@ -579,7 +519,12 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
       }
 
       if (message.type === "ipc-renderer-send") {
-        bridgeState.handleRendererSend?.(message.channel, message.args);
+        bridgeState.handleRendererSend?.(
+          message.channel,
+          message.args,
+          message.sourceUrl,
+          rendererSessionId,
+        );
         return;
       }
 
@@ -589,11 +534,20 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
           return;
         }
 
+        const isAppHostConnection =
+          message.channel === "codex_desktop:connect-app-host";
+        if (isAppHostConnection && message.portIds.length !== 1) {
+          console.error(
+            "[ipc-bridge] app host connection must transfer one MessagePort",
+          );
+          return;
+        }
         const ports = message.portIds.map((portId) => {
           const existingPort = messagePorts.get(portId);
           if (existingPort) {
             existingPort.disconnect();
           }
+
           const port = new WebSocketMessagePort(
             portId,
             (message) => {
@@ -687,7 +641,12 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
       if (message.type === "ipc-renderer-invoke") {
         const { channel, requestId, args } = message;
         Promise.resolve(
-          bridgeState.handleRendererInvoke?.(channel, args) ??
+          bridgeState.handleRendererInvoke?.(
+            channel,
+            args,
+            message.sourceUrl,
+            rendererSessionId,
+          ) ??
             Promise.reject(
               new Error(
                 `[ipc-bridge] no ipcMain.handle for channel ${channel}`,

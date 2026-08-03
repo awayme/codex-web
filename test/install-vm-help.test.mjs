@@ -65,6 +65,10 @@ test("VM installer uses cookie sessions for HTTP and WebSocket authentication", 
   );
 
   assert.match(installer, /handle \/__codex_web_login/u);
+  assert.match(
+    installer,
+    /handle \/__codex_web_login \{\\n'[\s\S]*printf '    route \{\\n'/u,
+  );
   assert.match(installer, /handle \/__codex_web_logout/u);
   assert.match(installer, /Secure; HttpOnly; SameSite=Strict/u);
   assert.match(
