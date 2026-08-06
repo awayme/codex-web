@@ -343,9 +343,9 @@ The fork includes two workflows:
   appcast and the latest `@openai/codex` npm package. When a version changes, it
   updates the Dockerfile, runs `npm test`, completes a full production build in
   Google Cloud Build, and opens a PR assigned to the repository owner.
-- **Deploy Cloud Run** runs after every push to `main`, including a merged
-  updater PR. It builds an image tagged with the merge commit and changes only
-  the image on the existing `codex-web` service.
+- **Deploy Cloud Run (manual rollback only)** runs only when explicitly started
+  from **Actions**. Pushes and merged updater PRs no longer deploy to Cloud Run;
+  the retained workflow exists only during the codexgui rollback window.
 
 ### Notifications
 
@@ -360,9 +360,9 @@ be sent, according to the account's Actions notification preferences.
 
 ### Deploy an update
 
-Review the generated PR, including its linked Cloud Build run, and merge it into
-`main`. No local command is required. The merge starts **Deploy Cloud Run**,
-which:
+Cloud Run is no longer the primary production target. During the rollback
+window, an operator may explicitly start **Deploy Cloud Run (manual rollback
+only)** from **Actions**. The workflow:
 
 1. authenticates to Google Cloud with short-lived GitHub OIDC credentials;
 2. asks Cloud Build to clone and build the exact merged commit with
@@ -426,9 +426,9 @@ code, the GCS mount, and background state sync must continue to use the
 `codex-web-run` service identity through Application Default Credentials.
 Persisted user credentials are only for commands run with the `gcloud` CLI.
 
-The workflow can be rerun from **Actions > Deploy Cloud Run > Run workflow**.
-Because manual runs use `main`, they redeploy the current committed production
-version.
+The workflow can be run from **Actions > Deploy Cloud Run (manual rollback
+only) > Run workflow**. Manual runs use `main` and redeploy its current
+committed version to the retained Cloud Run rollback service.
 
 ### GitHub-to-GCP authentication
 

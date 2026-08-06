@@ -1,9 +1,6 @@
-name: Deploy Cloud Run
+name: Deploy Cloud Run (manual rollback only)
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency:
