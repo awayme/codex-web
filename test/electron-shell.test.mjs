@@ -74,6 +74,7 @@ test("BrowserWindow emits ready-to-show after its first load", async () => {
 
 test("powerMonitor reports stable AC power in the hosted shell", () => {
   assert.equal(electron.powerMonitor.isOnBatteryPower(), false);
+  assert.equal(electron.powerMonitor.getSystemIdleState(1), "active");
 });
 
 test("renderer sessions receive isolated destroyed lifecycles", () => {

@@ -983,6 +983,10 @@ const nativeImage = {
 };
 const powerMonitor = {
   ...createEmitterStub("powerMonitor"),
+  getSystemIdleState(idleThresholdSeconds: number): "active" {
+    log("powerMonitor.getSystemIdleState", [idleThresholdSeconds]);
+    return "active";
+  },
   isOnBatteryPower(): boolean {
     log("powerMonitor.isOnBatteryPower", []);
     return false;
