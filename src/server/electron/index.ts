@@ -981,6 +981,93 @@ const nativeImage = {
     };
   },
 };
+let clipboardText = "";
+const clipboard = {
+  availableFormats(): string[] {
+    log("clipboard.availableFormats", []);
+    return clipboardText ? ["text/plain"] : [];
+  },
+  readBookmark(): { title: string; url: string } {
+    log("clipboard.readBookmark", []);
+    return { title: "", url: "" };
+  },
+  readBuffer(format: string): Buffer {
+    log("clipboard.readBuffer", [format]);
+    return Buffer.alloc(0);
+  },
+  readHTML(): string {
+    log("clipboard.readHTML", []);
+    return "";
+  },
+  readImage(): { isEmpty: () => boolean } {
+    log("clipboard.readImage", []);
+    return nativeImage.createEmpty();
+  },
+  readRTF(): string {
+    log("clipboard.readRTF", []);
+    return "";
+  },
+  readText(): string {
+    log("clipboard.readText", []);
+    return clipboardText;
+  },
+  write(data: unknown): void {
+    log("clipboard.write", [data]);
+  },
+  writeBuffer(format: string, buffer: Buffer): void {
+    log("clipboard.writeBuffer", [format, buffer.length]);
+  },
+  writeImage(image: unknown): void {
+    log("clipboard.writeImage", [image]);
+  },
+  writeText(value: string): void {
+    log("clipboard.writeText", [value]);
+    clipboardText = value;
+  },
+};
+const contentTracing = {
+  async startRecording(options?: unknown): Promise<void> {
+    log("contentTracing.startRecording", [options]);
+  },
+  async stopRecording(resultFilePath?: string): Promise<string> {
+    log("contentTracing.stopRecording", [resultFilePath]);
+    return resultFilePath ?? "";
+  },
+};
+const globalShortcut = {
+  isRegistered(accelerator: string): boolean {
+    log("globalShortcut.isRegistered", [accelerator]);
+    return false;
+  },
+  register(accelerator: string, callback: StubListener): boolean {
+    log("globalShortcut.register", [accelerator, callback]);
+    return false;
+  },
+  unregister(accelerator: string): void {
+    log("globalShortcut.unregister", [accelerator]);
+  },
+  unregisterAll(): void {
+    log("globalShortcut.unregisterAll", []);
+  },
+};
+let nextPowerSaveBlockerId = 1;
+const powerSaveBlockerIds = new Set<number>();
+const powerSaveBlocker = {
+  isStarted(id: number): boolean {
+    log("powerSaveBlocker.isStarted", [id]);
+    return powerSaveBlockerIds.has(id);
+  },
+  start(type: string): number {
+    log("powerSaveBlocker.start", [type]);
+    const id = nextPowerSaveBlockerId++;
+    powerSaveBlockerIds.add(id);
+    return id;
+  },
+  stop(id: number): void {
+    log("powerSaveBlocker.stop", [id]);
+    powerSaveBlockerIds.delete(id);
+  },
+};
 const powerMonitor = {
   ...createEmitterStub("powerMonitor"),
   getSystemIdleState(idleThresholdSeconds: number): "active" {
@@ -1034,6 +1121,9 @@ const screen = {
       bounds: { x: 0, y: 0, width: 1440, height: 900 },
     };
   },
+};
+const systemPreferences = {
+  ...createEmitterStub("systemPreferences"),
 };
 const protocol = {
   registerSchemesAsPrivileged(...args: unknown[]): void {
@@ -1179,6 +1269,9 @@ const electronModule = new Proxy(
   {
     app,
     BrowserWindow,
+    clipboard,
+    contentTracing,
+    globalShortcut,
     ipcMain,
     autoUpdater,
     crashReporter,
@@ -1190,10 +1283,12 @@ const electronModule = new Proxy(
     nativeTheme,
     Notification,
     powerMonitor,
+    powerSaveBlocker,
     protocol,
     screen,
     session,
     shell,
+    systemPreferences,
     Tray,
     utilityProcess,
     WebContentsView,
@@ -1215,6 +1310,9 @@ export {
   app,
   autoUpdater,
   BrowserWindow,
+  clipboard,
+  contentTracing,
+  globalShortcut,
   ipcMain,
   Menu,
   MenuItem,
@@ -1224,10 +1322,12 @@ export {
   nativeTheme,
   Notification,
   powerMonitor,
+  powerSaveBlocker,
   protocol,
   screen,
   session,
   shell,
+  systemPreferences,
   Tray,
   utilityProcess,
   WebContentsView,

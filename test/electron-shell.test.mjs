@@ -77,6 +77,34 @@ test("powerMonitor reports stable AC power in the hosted shell", () => {
   assert.equal(electron.powerMonitor.getSystemIdleState(1), "active");
 });
 
+test("systemPreferences is present without unsupported native font APIs", () => {
+  assert.equal(typeof electron.systemPreferences, "object");
+  assert.equal(electron.systemPreferences.getFontFamilies, undefined);
+});
+
+test("hosted desktop service stubs are safe and deterministic", async () => {
+  electron.clipboard.writeText("hosted clipboard");
+  assert.equal(electron.clipboard.readText(), "hosted clipboard");
+  assert.deepEqual(electron.clipboard.availableFormats(), ["text/plain"]);
+
+  assert.equal(
+    electron.globalShortcut.register("CommandOrControl+Shift+P", () => {}),
+    false,
+  );
+  const blockerId = electron.powerSaveBlocker.start("prevent-app-suspension");
+  assert.equal(electron.powerSaveBlocker.isStarted(blockerId), true);
+  electron.powerSaveBlocker.stop(blockerId);
+  assert.equal(electron.powerSaveBlocker.isStarted(blockerId), false);
+
+  await electron.contentTracing.startRecording({
+    recording_mode: "record-continuously",
+  });
+  assert.equal(
+    await electron.contentTracing.stopRecording("/tmp/trace.json"),
+    "/tmp/trace.json",
+  );
+});
+
 test("renderer sessions receive isolated destroyed lifecycles", () => {
   const channel = "codex_web:test-renderer-session";
   let sender;
