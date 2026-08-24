@@ -2,10 +2,14 @@
 set -euxo pipefail
 
 TEMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
-APP_VERSION="26.721.30844"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_VERSION="${CODEX_APP_VERSION:-$(
+  python3 "$REPO_ROOT/scripts/update_upstream_versions.py" \
+    --dockerfile "$REPO_ROOT/Dockerfile" \
+    --print-current-app-version
+)}"
 curl -o "$TEMP_DIR/file.zip" "https://persistent.oaistatic.com/codex-app-prod/ChatGPT-darwin-arm64-$APP_VERSION.zip"
 
-HOSTED_CODEX_APP_ZIP="$TEMP_DIR/file.zip" bash ./scripts/prepare_asar
-
-rm -rf "$TEMP_DIR"
+HOSTED_CODEX_APP_ZIP="$TEMP_DIR/file.zip" bash "$REPO_ROOT/scripts/prepare_asar"

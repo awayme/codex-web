@@ -1,19 +1,28 @@
 --- a/webview/assets/app-initial-BTphDPeq.js
 +++ b/webview/assets/app-initial-BTphDPeq.js
-@@ -408122,12 +408122,27 @@
-     f = new EventTarget(),
-     p = new ZYa(),
-     m = s,
-+    inputModeDisabled = !1,
+@@ -363245,13 +363245,29 @@
+               restoreRichLinks: !C,
+             })
+           : _$r({ schema: y, text: e }));
+-  let A = new rEn(null, {
+-      attributes: {
+-        "aria-multiline": `true`,
+-        dir: `auto`,
+-        role: `textbox`,
+-        spellcheck: `true`,
+-      },
++  let inputModeDisabled = !1,
 +    getAttributes = () =>
 +      inputModeDisabled
 +        ? {
 +            "aria-multiline": `true`,
++            dir: `auto`,
 +            role: `textbox`,
 +            spellcheck: `true`,
 +          }
 +        : {
 +            "aria-multiline": `true`,
++            dir: `auto`,
 +            role: `textbox`,
 +            spellcheck: `true`,
 +            inputmode: `none`,
@@ -21,33 +30,26 @@
 +    setPointerInputMode = (e) => {
 +      inputModeDisabled !== e &&
 +        ((inputModeDisabled = e),
-+        h.isDestroyed || h.setProps({ attributes: getAttributes }));
++        A.isDestroyed || A.setProps({ attributes: getAttributes() }));
 +    },
-     h = new YTn(null, {
--      attributes: {
--        "aria-multiline": `true`,
--        role: `textbox`,
--        spellcheck: `true`,
--      },
-+      attributes: getAttributes,
-       decorations: UYa,
-       state: _xn.create({
-         schema: DW,
-@@ -408261,6 +408276,17 @@
-         (h.updateState(t),
-           f.dispatchEvent(new CustomEvent(cni, { detail: e.docChanged })));
++    A = new rEn(null, {
++      attributes: getAttributes(),
+       transformPastedHTML(e) {
+         return e.length > NGa ? ` ` : nMn(mTa(e).body.innerHTML) || ` `;
        },
-+      handleDOMEvents: {
-+        mousedown(e, t) {
+@@ -363361,6 +363377,15 @@
+           b.dispatchEvent(new CustomEvent(NUa, { detail: e.docChanged })));
+       },
+       handleDOMEvents: {
++        mousedown() {
 +          return (setPointerInputMode(!0), !1);
 +        },
-+        touchstart(e, t) {
++        touchstart() {
 +          return (setPointerInputMode(!0), !1);
 +        },
-+        blur(e, t) {
++        blur() {
 +          return (setPointerInputMode(!1), !1);
 +        },
-+      },
-       handlePaste(e, t) {
-         if (t.defaultPrevented) return !0;
-         let n = t.clipboardData,
+         keyup(e, t) {
+           let { $from: n, empty: r } = e.state.selection;
+           return (

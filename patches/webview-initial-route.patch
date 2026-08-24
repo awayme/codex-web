@@ -1,41 +1,42 @@
 --- a/webview/assets/app-initial-BTphDPeq.js
 +++ b/webview/assets/app-initial-BTphDPeq.js
-@@ -181872,11 +181872,16 @@
+@@ -102284,11 +102284,16 @@
    unstable_useTransitions: i,
  }) {
-   let a = Gw.useRef();
--  a.current ??= kzn({ initialEntries: n, initialIndex: r, v5Compat: !0 });
-+  a.current ??= kzn({
+   let a = fg.useRef();
+-  a.current ??= Nkt({ initialEntries: n, initialIndex: r, v5Compat: !0 });
++  a.current ??= Nkt({
 +    initialEntries: n ?? [window.__ELECTRON_SHIM__.initialRoute],
 +    initialIndex: r,
 +    v5Compat: !0,
 +  });
    let o = a.current,
-     [s, c] = Gw.useState({ action: o.action, location: o.location }),
-     l = Gw.useCallback(
+     [s, c] = fg.useState({ action: o.action, location: o.location }),
+     l = fg.useCallback(
        (e) => {
 +        window.__ELECTRON_SHIM__.onMemoryNavigationChanged(e);
-         i === !1 ? c(e) : Gw.startTransition(() => c(e));
+         i === !1 ? c(e) : fg.startTransition(() => c(e));
        },
        [i],
-@@ -197825,7 +197830,7 @@
-       (gar = `app-shell-bottom-panel-launcher-visible`),
-       (_ar = `app-shell-file-tree-open`),
-       (yar = 100),
--      (fO = Da(Q, !0)),
-+      (fO = Da(Q, window.__ELECTRON_SHIM__.initialSidebarState)),
-       (bar = Da(Q, !0)),
-       (pO = Da(Q, !1)),
-       (xar = Da(Q, null)),
-@@ -197869,7 +197874,10 @@
+@@ -174382,7 +174387,7 @@
+       (zYn = `app-shell-file-tree-open`),
+       (BYn = `app-shell-summary-panel-pinned`),
+       (VYn = 100),
+-      (jT = Ga(Q, !0)),
++      (jT = Ga(Q, window.__ELECTRON_SHIM__.initialSidebarState)),
+       (HYn = Ga(Q, !0)),
+       (MT = Ga(Q, !1)),
+       (UYn = Ga(Q, null)),
+@@ -174425,7 +174430,10 @@
+             (r(), i());
            };
          },
        })),
--      (war = Da(Q, () => new qRe(1))),
-+      (war = Da(
+-      (KYn = Ga(Q, () => new MUe(1))),
++      (KYn = Ga(
 +        Q,
-+        () => new qRe(window.__ELECTRON_SHIM__.initialSidebarState),
++        () => new MUe(window.__ELECTRON_SHIM__.initialSidebarState),
 +      )),
-       (Tar = Da(Q, qir)),
-       (Ear = Hm(gar, !0)),
-       (mO = Da(ST, !1)),
+       (qYn = Ga(Q, hYn)),
+       (JYn = l_(RYn, !0)),
+       (YYn = Za(Q, ({ get: e }) => !e(cv) && e(tv))),

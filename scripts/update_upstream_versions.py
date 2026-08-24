@@ -71,6 +71,15 @@ def replace_arg(dockerfile: str, name: str, value: str) -> str:
     return updated
 
 
+def resolve_remote_test_dockerfile(
+    dockerfile: Path, remote_test_dockerfile: Path | None
+) -> Path | None:
+    if remote_test_dockerfile is not None:
+        return remote_test_dockerfile
+    candidate = dockerfile.parent / "Dockerfile.remote-test"
+    return candidate if candidate.exists() else None
+
+
 def write_github_output(path: Path, values: dict[str, object]) -> None:
     with path.open("a", encoding="utf-8") as output:
         for key, value in values.items():
@@ -86,12 +95,32 @@ def main() -> None:
     parser.add_argument("--appcast-file", type=Path)
     parser.add_argument("--npm-metadata-file", type=Path)
     parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--remote-test-dockerfile", type=Path)
+    parser.add_argument("--print-current-app-version", action="store_true")
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
 
     dockerfile = args.dockerfile.read_text(encoding="utf-8")
     current_app = current_arg(dockerfile, "CODEX_APP_VERSION")
     current_cli = current_arg(dockerfile, "CODEX_VERSION")
+    if args.print_current_app_version:
+        if args.write or args.github_output is not None:
+            parser.error(
+                "--print-current-app-version cannot be combined with --write or "
+                "--github-output"
+            )
+        print(current_app)
+        return
+
+    remote_test_dockerfile = resolve_remote_test_dockerfile(
+        args.dockerfile, args.remote_test_dockerfile
+    )
+    remote_test_source = None
+    remote_test_cli = None
+    if remote_test_dockerfile is not None:
+        remote_test_source = remote_test_dockerfile.read_text(encoding="utf-8")
+        remote_test_cli = current_arg(remote_test_source, "CODEX_VERSION")
+
     latest_app = latest_desktop_version(
         read_source(args.appcast_file, APPCAST_URL)
     )
@@ -100,19 +129,32 @@ def main() -> None:
     )
     app_changed = current_app != latest_app
     cli_changed = current_cli != latest_cli
-    changed = app_changed or cli_changed
+    pins_changed = remote_test_cli is not None and remote_test_cli != latest_cli
+    changed = app_changed or cli_changed or pins_changed
 
     if args.write and changed:
         dockerfile = replace_arg(dockerfile, "CODEX_APP_VERSION", latest_app)
         dockerfile = replace_arg(dockerfile, "CODEX_VERSION", latest_cli)
+        if remote_test_source is not None and remote_test_dockerfile is not None:
+            remote_test_source = replace_arg(
+                remote_test_source, "CODEX_VERSION", latest_cli
+            )
+
+        # Render and validate every affected file before writing any of them. This
+        # avoids leaving the repository half-updated because a secondary pin no
+        # longer has the expected shape.
         args.dockerfile.write_text(dockerfile, encoding="utf-8")
+        if remote_test_source is not None and remote_test_dockerfile is not None:
+            remote_test_dockerfile.write_text(remote_test_source, encoding="utf-8")
 
     result = {
         "changed": changed,
         "app_changed": app_changed,
         "cli_changed": cli_changed,
+        "pins_changed": pins_changed,
         "current_app_version": current_app,
         "current_cli_version": current_cli,
+        "current_remote_test_cli_version": remote_test_cli or "",
         "app_version": latest_app,
         "cli_version": latest_cli,
     }

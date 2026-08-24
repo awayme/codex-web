@@ -1,20 +1,21 @@
 --- a/.vite/build/worker.js
 +++ b/.vite/build/worker.js
-@@ -83557,6 +83557,7 @@
-   let n = jB(e.appVersion),
+@@ -93350,6 +93350,7 @@
+   let n = qz(e.appVersion),
      r = e.buildFlavor !== `prod`;
-   (UE({
+   (yT({
 +    enabled: !1,
-     dsn: SU,
+     dsn: e.dsn,
      environment: e.buildFlavor,
-     release: CU(n.version),
+     release: gU(n.version),
 --- a/.vite/build/window-all-closed-BwlaNiSa.js
 +++ b/.vite/build/window-all-closed-BwlaNiSa.js
-@@ -40848,6 +40848,7 @@
-     i = t.da(e.version);
+@@ -41122,6 +41122,7 @@
+   t && (s = +!!a);
+   let c = pe(e.version);
    return (
-     Hz({
+     qz({
 +      enabled: !1,
-       dsn: t.ua,
-       environment: YB.buildFlavor,
-       release: i,
+       dsn: uV.dsn,
+       environment: uV.buildFlavor,
+       release: c,

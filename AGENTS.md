@@ -75,15 +75,19 @@ Then open <http://127.0.0.1:8080>.
 
 ## Deployment automation
 
-The personal fork deploys `main` to the existing `codex-web` Cloud Run service
-through `.github/workflows/deploy-cloud-run.yml`. The workflow must update only
-the service image; it must not replace the existing GCS mount, Secret Manager
-bindings, IAP policy, runtime service account, or scaling configuration.
-GitHub builds use `cloudbuild.github.yaml`, which clones the exact public commit
-inside Cloud Build instead of granting GitHub access to the source-staging
-bucket.
+Merging or pushing `main` does not deploy production. The retained
+`.github/workflows/deploy-cloud-run.yml` workflow is a manually started Cloud
+Run rollback action only. The active VM/systemd deployment has a separate
+private operational runbook; build, promotion, state backup, acceptance, and
+rollback must follow that runbook.
+
+GitHub and operator builds use `cloudbuild.github.yaml`, which clones the exact
+public commit inside Cloud Build instead of granting GitHub access to the
+source-staging bucket. Current desktop renderer bundles require the configured
+32 GB Cloud Build worker while Prettier prepares patch targets.
 
 `.github/workflows/upstream-update.yml` checks the official desktop appcast and
 Codex CLI package, validates an updated image in Cloud Build, and opens an
 assigned PR. Keep upstream version changes isolated in those generated PRs so
-patch compatibility and deployment failures remain easy to diagnose.
+patch compatibility and deployment failures remain easy to diagnose. Merging
+the PR updates source only; production promotion is a separate operation.

@@ -353,10 +353,11 @@ A successful update check opens a GitHub PR assigned to the repository owner.
 That appears in GitHub's notification inbox and is also sent by email when
 assigned-item email notifications are enabled in the owner's GitHub settings.
 
-If detection, tests, or the compatibility build fails, the workflow opens or
-updates an assigned issue named **OpenAI Codex update needs attention**, with a
-link to the failed run. GitHub's normal failed-workflow notification may also
-be sent, according to the account's Actions notification preferences.
+If detection, tests, or the compatibility build fails, the workflow adds an
+**OpenAI Codex update needs attention** error annotation and summary to the
+failed Actions run. Repository Issues are disabled, so the updater does not try
+to create or update an issue. GitHub's normal failed-workflow notification may
+still be sent according to the account's Actions notification preferences.
 
 ### Deploy an update
 

@@ -1,11 +1,11 @@
 --- a/webview/assets/app-initial-BTphDPeq.js
 +++ b/webview/assets/app-initial-BTphDPeq.js
-@@ -338532,7 +338532,7 @@
-         })));
+@@ -233739,7 +233739,7 @@
+     (Qu(), (YLr = `${bxe}@${iu}`));
    });
- function wta(e) {
--  return `${Dta}${Eta(e)}`;
-+  return Eta(e);
+ function ZLr(e) {
+-  return `${eRr}${$Lr(e)}`;
++  return $Lr(e);
  }
- function Tta(e) {
-   return Eta(e);
+ function QLr(e) {
+   return $Lr(e);

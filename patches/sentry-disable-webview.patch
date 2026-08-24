@@ -1,10 +1,9 @@
 --- a/webview/assets/app-initial-BTphDPeq.js
 +++ b/webview/assets/app-initial-BTphDPeq.js
-@@ -207171,6 +207171,7 @@
-     n = Ahe(e.appVersion),
+@@ -298381,6 +298381,7 @@
      r = e.buildFlavor !== `prod`;
-   (fxr({
+   (jqi({
 +    enabled: !1,
-     beforeSend: B7t,
-     dsn: sEe,
-     environment: bxr,
+     beforeBreadcrumb: xje,
+     beforeSend: nFt,
+     dsn: e.dsn,

@@ -1,12 +1,21 @@
 --- a/webview/assets/app-initial-BTphDPeq.js
 +++ b/webview/assets/app-initial-BTphDPeq.js
-@@ -223016,6 +223016,9 @@
-       (n[2] = r))
-     : (r = n[2]);
-   let i = r;
-+  window.__ELECTRON_SHIM__.closeSidebar = () => {
-+    nar(e, !1, { animate: t });
-+  };
-   Dj(`toggleSidebar`, i);
-   let a;
-   (n[3] !== e || n[4] !== t
+@@ -379343,7 +379343,10 @@
+     c = Y(jT),
+     l = Y(U4a),
+     u = Y(SNt),
+     d = Y(CNt),
++    closeHostedSidebar = () => {
++      SYn(o, !1);
++    },
+     f = gs(dW, `toggleSidebar`),
+     p = gs(dW, `navigateBack`),
+     m = gs(dW, `navigateForward`),
+@@ -379388,6 +379391,7 @@
+       (t[6] = v),
+       (t[7] = y)),
+     (0, X4a.useEffect)(v, y));
++  window.__ELECTRON_SHIM__.closeSidebar = closeHostedSidebar;
+   let b;
+   t[8] === Symbol.for(`react.memo_cache_sentinel`)
+     ? ((b = (0, CW.jsx)(Z, {

@@ -4,7 +4,46 @@ set -euxo pipefail
 unzip -oq "$HOSTED_CODEX_APP_ZIP" -d scratch/
 asar extract "scratch/ChatGPT.app/Contents/Resources/app.asar" "scratch/asar"
 cp assets/* scratch/asar/webview/
-PWA_SOURCE_ICON="scratch/asar/webview/assets/app-D0g8sCle.png"
+
+resolve_one_file() {
+  local description="$1"
+  shift
+  local -a matches=()
+  while IFS= read -r -d '' match; do
+    matches+=("$match")
+  done < <(find "$@" -print0)
+
+  if [[ "${#matches[@]}" -ne 1 ]]; then
+    printf 'Expected exactly one %s, found %d:\n' \
+      "$description" "${#matches[@]}" >&2
+    printf '  %s\n' "${matches[@]}" >&2
+    return 1
+  fi
+
+  printf '%s\n' "${matches[0]}"
+}
+
+APP_INITIAL_BUNDLE="$({
+  resolve_one_file "app-initial renderer bundle" \
+    scratch/asar/webview/assets -maxdepth 1 -type f \
+    -name 'app-initial-*.js'
+})"
+LOCAL_CONVERSATION_THREAD_BUNDLE="$({
+  resolve_one_file "local-conversation-thread renderer bundle" \
+    scratch/asar/webview/assets -maxdepth 1 -type f \
+    -name 'local-conversation-thread-*.js' \
+    ! -name 'local-conversation-thread-turn-entries-*.js'
+})"
+WINDOW_ALL_CLOSED_BUNDLE="$({
+  resolve_one_file "window-all-closed desktop bundle" \
+    scratch/asar/.vite/build -maxdepth 1 -type f \
+    -name 'window-all-closed-*.js'
+})"
+PWA_SOURCE_ICON="$({
+  resolve_one_file "application icon" \
+    scratch/asar/webview/assets -maxdepth 1 -type f \
+    -name 'app-*.png'
+})"
 PWA_TARGET_ICON="scratch/asar/webview/assets/pwa-icon-512.png"
 PWA_ICON_SIZE=512
 PWA_TOTAL_PADDING_PERCENT=25
@@ -13,41 +52,57 @@ PWA_PADDING_TOTAL=$((PWA_ICON_SIZE - PWA_CONTENT_SIZE))
 PWA_PADDING_BEFORE=$((PWA_PADDING_TOTAL / 2))
 PWA_PADDING_AFTER=$((PWA_PADDING_TOTAL - PWA_PADDING_BEFORE))
 sharp -i "$PWA_SOURCE_ICON" -o "$PWA_TARGET_ICON" -f png resize "$PWA_CONTENT_SIZE" "$PWA_CONTENT_SIZE" --fit inside -- flatten white -- extend "$PWA_PADDING_BEFORE" "$PWA_PADDING_AFTER" "$PWA_PADDING_BEFORE" "$PWA_PADDING_AFTER" --background white -- removeAlpha
-if [[ -n "${DEV:-}" ]]; then
-  prettier --ignore-path /dev/null --ignore-unknown --write "scratch/asar"
-else
-  patched_files=()
-  while IFS= read -r patched_file; do
-    patched_files+=("$patched_file")
-  done < <(
-    awk '/^\+\+\+ b\//{sub(/^\+\+\+ b\//, "scratch/asar/"); print}' patches/*.patch | sort -u
-  )
-  # Some upstream bundles are several megabytes after minification. Formatting
-  # every patched bundle in one Prettier process keeps all of their ASTs alive
-  # at once and can exceed Node's default heap limit. Process them separately
-  # and give each process enough heap for the largest renderer bundle.
-  for patched_file in "${patched_files[@]}"; do
-    NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}" \
-      prettier --ignore-path /dev/null --ignore-unknown --write "$patched_file"
-  done
-fi
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-remove-csp.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-style.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-safe-header-left.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-preload.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-favicon.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-pwa.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-thread-title.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-initial-route.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-electron-shim-close-sidebar.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-prosemirror-inputmode.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-use-atfs-for-local-files.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-statsig-override-adapter.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-prioritize-startup-requests.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-prompt-search-param.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/preload-disable-device-check.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/sentry-disable-shell.patch
-patch --batch --forward --strip 1 --directory scratch/asar < patches/sentry-disable-webview.patch
+
+RENDERED_PATCH_DIRECTORY="$(mktemp -d)"
+trap 'rm -rf "$RENDERED_PATCH_DIRECTORY"' EXIT
+for source_patch in patches/*.patch; do
+  rendered_patch="$RENDERED_PATCH_DIRECTORY/$(basename "$source_patch")"
+  sed \
+    -e "s|app-initial-BTphDPeq.js|$(basename "$APP_INITIAL_BUNDLE")|g" \
+    -e "s|local-conversation-thread-BaIREoHa.js|$(basename "$LOCAL_CONVERSATION_THREAD_BUNDLE")|g" \
+    -e "s|window-all-closed-BwlaNiSa.js|$(basename "$WINDOW_ALL_CLOSED_BUNDLE")|g" \
+    "$source_patch" > "$rendered_patch"
+done
+
+patched_files=()
+while IFS= read -r patched_file; do
+  patched_files+=("$patched_file")
+done < <(
+  awk '/^\+\+\+ b\//{sub(/^\+\+\+ b\//, "scratch/asar/"); print}' \
+    "$RENDERED_PATCH_DIRECTORY"/*.patch | sort -u
+)
+# Process each patched file separately so smaller bundles do not accumulate in
+# the same Prettier heap. The largest renderer bundle requires a high-memory
+# builder; keeping it isolated also makes an OOM identify the exact asset.
+for patched_file in "${patched_files[@]}"; do
+  NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=16384}" \
+    prettier --ignore-path /dev/null --ignore-unknown --write "$patched_file"
+done
+
+node scripts/remove_upstream_csp.mjs scratch/asar
+
+for patch_name in \
+  webview-style.patch \
+  webview-safe-header-left.patch \
+  webview-preload.patch \
+  webview-favicon.patch \
+  webview-pwa.patch \
+  webview-thread-title.patch \
+  webview-initial-route.patch \
+  webview-electron-shim-close-sidebar.patch \
+  webview-prosemirror-inputmode.patch \
+  webview-use-atfs-for-local-files.patch \
+  webview-statsig-override-adapter.patch \
+  webview-prioritize-startup-requests.patch \
+  webview-prompt-search-param.patch \
+  webview-prompt-default-text.patch \
+  preload-disable-device-check.patch \
+  sentry-disable-shell.patch \
+  sentry-disable-webview.patch
+do
+  patch --batch --forward --strip 1 --directory scratch/asar \
+    < "$RENDERED_PATCH_DIRECTORY/$patch_name"
+done
 node scripts/enable_linux_remote_control_keys.mjs
 # The downloaded desktop app is the macOS arm64 build, so its bundled native
 # modules cannot load in the Linux container. Resolve these modules from the

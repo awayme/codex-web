@@ -339,8 +339,8 @@ tagged image already exists and only the Cloud Run configuration has changed.
 This fork checks OpenAI's desktop appcast and the published `@openai/codex`
 package every Monday. When either pinned version changes, GitHub Actions runs
 the unit tests and a full Google Cloud Build, then opens a release PR assigned
-to the repository owner. Merging that PR into `main` builds a commit-tagged
-production image and updates only the existing Cloud Run service image.
+to the repository owner. Merging that PR updates `main`; it does not deploy.
+The retained Cloud Run workflow is a separate, manually started rollback action.
 
 The production workflow deliberately leaves the service's GCS volume,
 environment, IAP policy, Secret Manager mounts, scaling, and runtime service

@@ -15,6 +15,10 @@ steps:
     dir: source
     args:
       - build
+      - --build-arg
+      - CODEX_APP_VERSION=${_CODEX_APP_VERSION}
+      - --build-arg
+      - CODEX_VERSION=${_CODEX_VERSION}
       - --tag
       - ${_IMAGE}
       - .
@@ -23,9 +27,8 @@ images:
   - ${_IMAGE}
 
 options:
-  # Current Codex desktop renderer bundles require more than 8 GB while
-  # Prettier prepares the patch targets. Keep the production build on the
-  # smallest default-pool worker that clears that compatibility gate.
+  # Match the production image build: current renderer bundles exceed the
+  # 8 GB worker while Prettier prepares the patch targets.
   machineType: E2_HIGHCPU_32
   diskSizeGb: 100
 

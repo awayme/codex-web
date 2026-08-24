@@ -27,6 +27,7 @@ RUN npm ci --include=dev --ignore-scripts \
 COPY assets/ ./assets/
 COPY patches/ ./patches/
 COPY scripts/enable_linux_remote_control_keys.mjs ./scripts/enable_linux_remote_control_keys.mjs
+COPY scripts/remove_upstream_csp.mjs ./scripts/remove_upstream_csp.mjs
 COPY scripts/prepare_asar ./scripts/prepare_asar
 COPY scripts/smoke_test_terminal_pty.mjs ./scripts/smoke_test_terminal_pty.mjs
 COPY src/ ./src/
@@ -45,7 +46,7 @@ FROM ${NODE_IMAGE} AS runtime
 
 ARG CODEX_VERSION=0.149.1
 ARG GCLOUD_VERSION=578.0.0-0
-ARG GH_VERSION=2.97.0
+ARG GH_VERSION=2.98.0
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \

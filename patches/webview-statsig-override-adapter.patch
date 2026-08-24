@@ -1,11 +1,12 @@
 --- a/webview/assets/app-initial-BTphDPeq.js
 +++ b/webview/assets/app-initial-BTphDPeq.js
-@@ -743334,6 +743334,8 @@
-       (wtu = 5),
-       (Ttu = 500),
-       (Etu = {
+@@ -746233,7 +746233,9 @@
+       ($5l = 5),
+       (e7l = 500),
+       (t7l = {
 +        overrideAdapter: window.__ELECTRON_SHIM__.overrideAdapter,
          networkConfig: {
 +          preventAllNetworkTraffic: true,
-           api: xtu,
-           logEventUrl: r9l,
+           api: X5l,
+           logEventUrl: f6l,
+           sdkExceptionUrl: Z5l,

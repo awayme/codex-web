@@ -1,6 +1,6 @@
 --- a/webview/assets/app-initial-BTphDPeq.js
 +++ b/webview/assets/app-initial-BTphDPeq.js
-@@ -150109,7 +150109,7 @@
+@@ -69809,7 +69809,7 @@
              s = await this.listRecentThreads({
                limit: i ? Math.min(a, 100) : a,
                cursor: null,
@@ -9,29 +9,41 @@
              });
            if (s.data.length < a && s.nextCursor != null) {
              let e = [...s.data],
-@@ -150203,7 +150203,7 @@
+@@ -69913,7 +69913,7 @@
                r,
                n
                  ? { priority: `background`, source: `recent_threads` }
 -                : { source: `recent_threads` },
 +                : { priority: `critical`, source: `recent_threads` },
              );
-           return { ...i, data: i.data.filter(ddn) };
+           return { ...i, data: i.data.filter(sat) };
          }
-@@ -193455,7 +193455,7 @@
-   (Fu(), bg(), oS());
- });
- function x8n() {
--  return wHn() ? { priority: `critical` } : {};
+@@ -116878,7 +116878,7 @@
+       ]));
+   });
+ function NQt() {
+-  return kQt() ? { priority: `critical` } : {};
 +  return { priority: `critical` };
  }
- var S8n = e(() => {
-   eT();
-@@ -236672,6 +236672,7 @@
-                 includeHidden: !0,
-                 cursor: null,
-                 limit: i,
-+                priority: `critical`,
-               }),
+ var PQt = n(() => {
+     sb();
+@@ -359706,11 +359706,15 @@
+             queryFn: () => (
+               i && l.removeQueries({ exact: !0, queryKey: yVa(n, t, a) }),
+-              Lg(u, n).sendRequest(`model/list`, {
+-                includeHidden: !0,
+-                cursor: null,
+-                limit: a,
+-              })
++              Lg(u, n).sendRequest(
++                `model/list`,
++                {
++                  includeHidden: !0,
++                  cursor: null,
++                  limit: a,
++                },
++                { priority: `critical` },
++              )
+             ),
              select: ({ data: n }) =>
-               jJr({
+               cVa({

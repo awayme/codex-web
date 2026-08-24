@@ -1,0 +1,32 @@
+--- a/webview/assets/app-initial-BTphDPeq.js
++++ b/webview/assets/app-initial-BTphDPeq.js
+@@ -658835,1 +658835,1 @@
+-    yt = m$r(be) ? `prompt` : `plain`,
++    yt = m$r(hostedDefaultText) ? `prompt` : `plain`,
+@@ -658998,7 +658998,7 @@
+   t[137] !== vt ||
+   t[138] !== O ||
+   t[139] !== he ||
+-  t[140] !== be ||
++  t[140] !== hostedDefaultText ||
+   t[141] !== yt ||
+   t[142] !== bt ||
+   t[143] !== xt ||
+@@ -659008,7 +659008,7 @@
+         vt,
+         {
+           composerController: O,
+-          defaultText: be,
++          defaultText: hostedDefaultText,
+           defaultTextKind: yt,
+           initialDocument: bt,
+           onDocumentDispose: xt,
+@@ -659019,7 +659019,7 @@
+       (t[137] = vt),
+       (t[138] = O),
+       (t[139] = he),
+-      (t[140] = be),
++      (t[140] = hostedDefaultText),
+       (t[141] = yt),
+       (t[142] = bt),
+       (t[143] = xt),
