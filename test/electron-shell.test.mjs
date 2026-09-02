@@ -72,6 +72,16 @@ test("BrowserWindow emits ready-to-show after its first load", async () => {
   browserWindow.destroy();
 });
 
+test("BrowserWindow is not treated as a Promise-compatible thenable", async () => {
+  const BrowserWindow = electron.BrowserWindow;
+  const browserWindow = new BrowserWindow({ show: false });
+
+  assert.equal(browserWindow.then, undefined);
+  assert.equal(await Promise.resolve(browserWindow), browserWindow);
+
+  browserWindow.destroy();
+});
+
 test("powerMonitor reports stable AC power in the hosted shell", () => {
   assert.equal(electron.powerMonitor.isOnBatteryPower(), false);
   assert.equal(electron.powerMonitor.getSystemIdleState(1), "active");

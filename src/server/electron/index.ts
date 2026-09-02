@@ -604,6 +604,9 @@ class BrowserWindow {
     }
     return new Proxy(this, {
       get: (target, prop) => {
+        if (prop === "then") {
+          return undefined;
+        }
         if (prop in target) {
           return target[prop as keyof typeof target];
         }
