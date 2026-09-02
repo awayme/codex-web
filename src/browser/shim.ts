@@ -955,6 +955,14 @@ function isUnhandledAddWorkspaceRootOptionMessage(value: unknown): value is {
   );
 }
 
+function isPickWorkspaceRootOptionMessage(value: unknown): value is {
+  type: "electron-pick-workspace-root-option";
+} {
+  return (
+    isRecord(value) && value.type === "electron-pick-workspace-root-option"
+  );
+}
+
 function isOpenInBrowserMessage(value: unknown): value is {
   type: "open-in-browser";
   url: string;
@@ -1006,6 +1014,14 @@ Object.assign(globalThis, {
 electronShim.overrideAdapter = {
   getGateOverride(evaluation) {
     if (evaluation.name === "2911712394") {
+      return {
+        ...evaluation,
+        value: true,
+      };
+    }
+
+    if (evaluation.name === "3902016271") {
+      // Auto-review ("Approve for me").
       return {
         ...evaluation,
         value: true,
@@ -1095,6 +1111,24 @@ export const ipcRenderer = {
           }
 
           return invokeMain(channel, [{ ...args[0], root }]);
+        });
+      }
+
+      if (isPickWorkspaceRootOptionMessage(args[0])) {
+        return openSelectWorkspaceRootDialog({
+          listDirectory: requestWorkspaceDirectoryEntries,
+        }).then((root) => {
+          if (!root) {
+            return undefined;
+          }
+
+          emitRendererEvent("codex_desktop:message-for-view", [
+            {
+              type: "workspace-root-option-picked",
+              root,
+            },
+          ]);
+          return undefined;
         });
       }
     }
