@@ -31,6 +31,20 @@ default, it listens on `127.0.0.1:8214`.
 it will use `codex` from `PATH` if available, or `CODEX_CLI_PATH` if you set
 it.
 
+For this local checkout, after building, run:
+
+```bash
+./start.sh
+```
+
+The launcher uses Node.js 25.0.0 at
+`/home/asym/.nvm/versions/node/v25.0.0/bin/node`. It preserves an explicit
+`CODEX_CLI_PATH`, or finds `codex` on the current `PATH` before switching Node.js.
+Server arguments are forwarded, for example `./start.sh --port 8215`.
+GitHub CLI (`gh`) must be installed; the launcher includes `~/.local/bin` in
+`PATH` and checks `gh --version` before starting Desktop. GitHub authentication
+is separate and is only needed for features that access your GitHub account.
+
 run it with `npx`:
 
 ```bash
