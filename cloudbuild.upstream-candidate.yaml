@@ -1,0 +1,35 @@
+steps:
+  - name: gcr.io/cloud-builders/git
+    args:
+      - clone
+      - --no-checkout
+      - ${_SOURCE_REPOSITORY}
+      - source
+  - name: gcr.io/cloud-builders/git
+    dir: source
+    args:
+      - checkout
+      - --detach
+      - ${_SOURCE_REVISION}
+  - name: gcr.io/cloud-builders/docker
+    dir: source
+    args:
+      - build
+      - --build-arg
+      - CODEX_APP_VERSION=${_CODEX_APP_VERSION}
+      - --build-arg
+      - CODEX_VERSION=${_CODEX_VERSION}
+      - --tag
+      - ${_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}
+
+options:
+  # Match the production image build: current renderer bundles exceed the
+  # 8 GB worker while Prettier prepares the patch targets.
+  machineType: E2_HIGHCPU_32
+  diskSizeGb: 100
+
+timeout: 1800s

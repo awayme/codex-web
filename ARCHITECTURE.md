@@ -62,5 +62,18 @@ the renderer. this part is the most sloppy part of the codebase as i left codex
 to figure it out unattended. the parts around `__codexElectronIpcBridge` are the
 important bits related to wiring up the ipc bridge.
 
+## remote hosts
+
+remote hosts use the upstream codex desktop connection manager rather than a
+second codex-web-specific protocol. the desktop bundle discovers concrete
+aliases in the container user's `~/.ssh/config`, keeps one app-server
+connection per selected host, ensures the remote daemon is available, and
+bridges its websocket protocol over `ssh ... codex app-server proxy`.
+
+the docker entrypoint stages read-only SSH secret mounts into a mode-correct,
+writable `~/.ssh` directory. Electron `userData` and related writable paths are
+mapped to `CODEX_WEB_DATA_DIR` so the selected connection catalog can live on a
+persistent volume independently of the immutable application image.
+
 [preload script]: https://www.electronjs.org/docs/latest/tutorial/tutorial-preload
 [`ipcRenderer`]: https://www.electronjs.org/docs/latest/api/ipc-renderer

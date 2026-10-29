@@ -1,0 +1,286 @@
+import assert from "node:assert/strict";
+import http from "node:http";
+import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
+import test from "node:test";
+import {
+  createRemoteControlOAuthCallbackForwarder,
+  forwardRemoteControlOAuthCallback,
+  parseRemoteControlOAuthCallback,
+  parseRemoteControlOAuthCallbackUrl,
+  remoteControlOAuthCompleteHtml,
+} from "../src/server/oauth-callback.js";
+
+test("duplicate OAuth callbacks from different tabs share one forwarding request", async () => {
+  let requests = 0;
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const forward = createRemoteControlOAuthCallbackForwarder(async () => {
+    requests += 1;
+    await gate;
+  });
+  const callback = {
+    port: 1455,
+    path: "/auth/callback",
+    search: "?code=test&state=one",
+  };
+  const first = forward(callback);
+  const second = forward({ ...callback });
+  assert.equal(first, second);
+  release();
+  await Promise.all([first, second]);
+  await forward(callback);
+  assert.equal(requests, 1);
+  await forward({ ...callback, search: "?code=test&state=two" });
+  assert.equal(requests, 2);
+});
+
+test("a failed OAuth forwarding request can be retried", async () => {
+  let requests = 0;
+  const forward = createRemoteControlOAuthCallbackForwarder(async () => {
+    if (++requests === 1) throw new Error("listener unavailable");
+  });
+  const callback = {
+    port: 1455,
+    path: "/auth/callback",
+    search: "?code=test&state=retry",
+  };
+  await assert.rejects(forward(callback), /listener unavailable/);
+  await forward(callback);
+  assert.equal(requests, 2);
+});
+
+function listen(server, port = 0, host = "127.0.0.1") {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, host, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+}
+
+function close(server) {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+test("validates remote-control callback payloads", () => {
+  assert.deepEqual(
+    parseRemoteControlOAuthCallback({
+      port: 1455,
+      path: "/auth/callback",
+      search: "?code=authorization-code&state=expected-state",
+    }),
+    {
+      port: 1455,
+      path: "/auth/callback",
+      search: "?code=authorization-code&state=expected-state",
+    },
+  );
+
+  assert.throws(
+    () =>
+      parseRemoteControlOAuthCallback({
+        port: 8080,
+        path: "/auth/callback",
+        search: "?code=authorization-code&state=expected-state",
+      }),
+    /Unsupported remote-control OAuth callback port/,
+  );
+  assert.throws(
+    () =>
+      parseRemoteControlOAuthCallback({
+        port: 1455,
+        path: "/not-the-callback",
+        search: "?code=authorization-code&state=expected-state",
+      }),
+    /Unsupported remote-control OAuth callback path/,
+  );
+  assert.throws(
+    () =>
+      parseRemoteControlOAuthCallback({
+        port: 1455,
+        path: "/auth/callback",
+        search: "?code=authorization-code",
+      }),
+    /missing state/,
+  );
+});
+
+test("validates manually pasted localhost callback URLs", () => {
+  const callbackUrl =
+    "http://localhost:1457/auth/callback?code=authorization-code&state=expected-state";
+  assert.deepEqual(parseRemoteControlOAuthCallbackUrl(callbackUrl), {
+    port: 1457,
+    path: "/auth/callback",
+    search: "?code=authorization-code&state=expected-state",
+  });
+  assert.deepEqual(parseRemoteControlOAuthCallback(callbackUrl), {
+    port: 1457,
+    path: "/auth/callback",
+    search: "?code=authorization-code&state=expected-state",
+  });
+
+  for (const invalidUrl of [
+    "https://localhost:1455/auth/callback?code=value&state=value",
+    "http://codex-web.example.test:1455/auth/callback?code=value&state=value",
+    "http://user@localhost:1455/auth/callback?code=value&state=value",
+    "http://localhost:1455/auth/callback?code=value&state=value#fragment",
+    "http://localhost:8080/auth/callback?code=value&state=value",
+  ]) {
+    assert.throws(
+      () => parseRemoteControlOAuthCallbackUrl(invalidUrl),
+      /remote-control OAuth callback/u,
+    );
+  }
+});
+
+test("forwards a callback to the loopback OAuth listener", async () => {
+  let receivedUrl = null;
+  const callbackServer = http.createServer((request, response) => {
+    receivedUrl = request.url;
+    response.writeHead(200, { "Content-Type": "text/plain" });
+    response.end("ok");
+  });
+  await listen(callbackServer);
+
+  try {
+    const address = callbackServer.address();
+    assert(address && typeof address === "object");
+    await forwardRemoteControlOAuthCallback({
+      port: address.port,
+      path: "/auth/callback",
+      search: "?code=authorization-code&state=expected-state",
+    });
+    assert.equal(
+      receivedUrl,
+      "/auth/callback?code=authorization-code&state=expected-state",
+    );
+  } finally {
+    await close(callbackServer);
+  }
+});
+
+test("forwards a callback to an IPv6 loopback OAuth listener", async () => {
+  let receivedUrl = null;
+  const callbackServer = http.createServer((request, response) => {
+    receivedUrl = request.url;
+    response.writeHead(200, { "Content-Type": "text/plain" });
+    response.end("ok");
+  });
+  await listen(callbackServer, 0, "::1");
+
+  try {
+    const address = callbackServer.address();
+    assert(address && typeof address === "object");
+    await forwardRemoteControlOAuthCallback({
+      port: address.port,
+      path: "/auth/callback",
+      search: "?code=authorization-code&state=expected-state",
+    });
+    assert.equal(
+      receivedUrl,
+      "/auth/callback?code=authorization-code&state=expected-state",
+    );
+  } finally {
+    await close(callbackServer);
+  }
+});
+
+test("completion page keeps OAuth values in the browser fragment", () => {
+  const html = remoteControlOAuthCompleteHtml();
+  assert.match(html, /location\.hash/);
+  assert.match(html, /BroadcastChannel/);
+  assert.doesNotMatch(html, /authorization-code/);
+});
+
+test("browser offers a Cloud Run-only manual callback handoff", async () => {
+  const source = await fs.readFile(
+    new URL("../src/browser/shim.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /Complete remote-control authorization/u);
+  assert.match(source, /Do not paste the URL into chat/u);
+  assert.match(source, /callback: callbackUrl/u);
+  assert.match(source, /type: "oauth-callback-forward"/u);
+  assert.match(source, /getActiveModalMountTarget\(\)\.append\(overlay\)/u);
+  assert.match(source, /pointerEvents: "auto"/u);
+  assert.match(source, /input\.focus\(\)/u);
+});
+
+test("local relay redirects the localhost callback into a fragment", async () => {
+  const reservation = http.createServer();
+  await listen(reservation);
+  const address = reservation.address();
+  assert(address && typeof address === "object");
+  const relayPort = address.port;
+  await close(reservation);
+
+  const relay = spawn(
+    process.execPath,
+    ["scripts/cloud-run-oauth-relay.mjs", "https://codex-web.example.test/"],
+    {
+      cwd: new URL("..", import.meta.url),
+      env: {
+        ...process.env,
+        CODEX_WEB_OAUTH_RELAY_PORTS: String(relayPort),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("OAuth relay did not start")),
+        5_000,
+      );
+      relay.once("exit", (code) => {
+        clearTimeout(timeout);
+        reject(new Error(`OAuth relay exited with code ${code}`));
+      });
+      relay.stdout.once("data", () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    const location = await new Promise((resolve, reject) => {
+      const request = http.get(
+        `http://127.0.0.1:${relayPort}/auth/callback?code=secret-code&state=expected-state`,
+        (response) => {
+          response.resume();
+          response.once("end", () => resolve(response.headers.location));
+        },
+      );
+      request.once("error", reject);
+    });
+
+    assert.equal(typeof location, "string");
+    const redirect = new URL(location);
+    assert.equal(
+      redirect.origin + redirect.pathname,
+      "https://codex-web.example.test/__backend/oauth/remote-control-complete",
+    );
+    assert.equal(redirect.search, "");
+    const fragment = new URLSearchParams(redirect.hash.slice(1));
+    assert.equal(fragment.get("port"), String(relayPort));
+    assert.equal(fragment.get("path"), "/auth/callback");
+    assert.equal(
+      fragment.get("search"),
+      "?code=secret-code&state=expected-state",
+    );
+  } finally {
+    relay.kill("SIGTERM");
+  }
+});

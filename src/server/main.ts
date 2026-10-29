@@ -17,6 +17,13 @@ import Fastify from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { installModuleAliasHook } from "./module";
+import {
+  createRemoteControlOAuthCallbackForwarder,
+  parseRemoteControlOAuthCallback,
+  remoteControlOAuthCompleteHtml,
+  REMOTE_CONTROL_OAUTH_COMPLETE_PATH,
+} from "./oauth-callback";
+import { WebSocketMessagePort } from "./websocket-message-port";
 
 type ServerOptions = {
   host: string;
@@ -58,6 +65,11 @@ type RendererToMainMessage =
       requestId: string;
       directoryPath: string | null;
       directoriesOnly: boolean;
+    }
+  | {
+      type: "oauth-callback-forward";
+      requestId: string;
+      callback: unknown;
     };
 
 type MainToRendererMessage =
@@ -65,6 +77,10 @@ type MainToRendererMessage =
       type: "ipc-main-event";
       channel: string;
       args: unknown[];
+    }
+  | {
+      type: "open-external";
+      url: string;
     }
   | {
       type: "ipc-renderer-invoke-result";
@@ -98,6 +114,17 @@ type MainToRendererMessage =
   | {
       type: "message-port-close";
       portId: string;
+    }
+  | {
+      type: "oauth-callback-forward-result";
+      requestId: string;
+      ok: true;
+    }
+  | {
+      type: "oauth-callback-forward-result";
+      requestId: string;
+      ok: false;
+      errorMessage: string;
     };
 
 type WorkspaceDirectoryEntry = {
@@ -112,99 +139,12 @@ type WorkspaceDirectoryEntries = {
   entries: WorkspaceDirectoryEntry[];
 };
 
-type MessagePortListener = (...args: unknown[]) => void;
-
 type BridgedMessagePort = {
   close: () => void;
-  on: (event: string, listener: MessagePortListener) => unknown;
+  on: (event: string, listener: (...args: unknown[]) => void) => unknown;
   postMessage: (message: unknown) => void;
   start: () => void;
 };
-
-class WebSocketMessagePort implements BridgedMessagePort {
-  private closed = false;
-  private readonly pendingMessages: unknown[] = [];
-  private readonly listeners = new Map<string, Set<MessagePortListener>>();
-
-  constructor(
-    private readonly portId: string,
-    private readonly sendToRenderer: (message: MainToRendererMessage) => void,
-    private readonly onClosed: () => void,
-  ) {}
-
-  on(event: string, listener: MessagePortListener): this {
-    const listeners = this.listeners.get(event) ?? new Set();
-    listeners.add(listener);
-    this.listeners.set(event, listeners);
-    if (event === "message") {
-      for (const data of this.pendingMessages.splice(0)) {
-        this.receiveMessage(data);
-      }
-    }
-
-    return this;
-  }
-
-  postMessage(data: unknown): void {
-    if (this.closed) {
-      return;
-    }
-    this.sendToRenderer({
-      type: "message-port-message",
-      portId: this.portId,
-      data,
-    });
-  }
-
-  start(): void {}
-
-  close(): void {
-    if (!this.markClosed()) {
-      return;
-    }
-    this.sendToRenderer({
-      type: "message-port-close",
-      portId: this.portId,
-    });
-  }
-
-  receiveMessage(data: unknown): void {
-    if (this.closed) {
-      return;
-    }
-    const listeners = this.listeners.get("message");
-    if (!listeners || listeners.size === 0) {
-      this.pendingMessages.push(data);
-      return;
-    }
-    for (const listener of listeners) {
-      listener({ data });
-    }
-  }
-
-  disconnect(): void {
-    if (!this.markClosed()) {
-      return;
-    }
-    this.emit("close");
-  }
-
-  private emit(event: string, ...args: unknown[]): void {
-    for (const listener of this.listeners.get(event) ?? []) {
-      listener(...args);
-    }
-  }
-
-  private markClosed(): boolean {
-    if (this.closed) {
-      return false;
-    }
-    this.closed = true;
-    this.pendingMessages.length = 0;
-    this.onClosed();
-    return true;
-  }
-}
 
 function workspaceDirectoryEntryTypeRank(
   entry: WorkspaceDirectoryEntry,
@@ -242,7 +182,7 @@ type IpcMainBridgeState = {
   sendToRenderer?: (
     webContentsId: number,
     message: MainToRendererMessage,
-  ) => void;
+  ) => boolean;
   handleRendererInvoke?: (
     channel: string,
     args: unknown[],
@@ -412,12 +352,34 @@ function ensureElectronLikeProcessContext(): void {
 async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   const bridgeState = getIpcMainBridgeState();
   const app = Fastify({ logger: false });
+  const startedAt = Date.now();
+  const forwardOAuthCallback = createRemoteControlOAuthCallbackForwarder();
   const websocketServer = new WebSocketServer({ noServer: true });
 
   await app.register(fastifyMultipart, {
     limits: {
       fileSize: Infinity,
     },
+  });
+
+  app.get("/__backend/healthz", async () => {
+    return {
+      status: "ok",
+      uptimeSeconds: Math.floor((Date.now() - startedAt) / 1_000),
+    };
+  });
+
+  app.get("/__backend/readyz", async () => {
+    return {
+      status: "ready",
+    };
+  });
+
+  app.get(REMOTE_CONTROL_OAUTH_COMPLETE_PATH, async (_request, reply) => {
+    return reply
+      .header("Cache-Control", "no-store")
+      .type("text/html; charset=utf-8")
+      .send(remoteControlOAuthCompleteHtml());
   });
 
   const uploadRoot = await fs.mkdtemp(
@@ -496,11 +458,13 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
       bridgeState.setRendererWindowFactory = resolve;
     },
   );
-  bridgeState.sendToRenderer = (webContentsId, message): void => {
+  bridgeState.sendToRenderer = (webContentsId, message): boolean => {
     const socket = rendererSockets.get(webContentsId);
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(message));
+      return true;
     }
+    return false;
   };
 
   websocketServer.on("connection", (socket) => {
@@ -525,6 +489,7 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
       });
 
     const messagePorts = new Map<string, WebSocketMessagePort>();
+
     const dispatchPostMessage = (
       channel: string,
       message: unknown,
@@ -582,11 +547,20 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
           return;
         }
 
+        const isAppHostConnection =
+          message.channel === "codex_desktop:connect-app-host";
+        if (isAppHostConnection && message.portIds.length !== 1) {
+          console.error(
+            "[ipc-bridge] app host connection must transfer one MessagePort",
+          );
+          return;
+        }
         const ports = message.portIds.map((portId) => {
           const existingPort = messagePorts.get(portId);
           if (existingPort) {
             existingPort.disconnect();
           }
+
           const port = new WebSocketMessagePort(
             portId,
             (message) => {
@@ -611,6 +585,36 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
 
       if (message.type === "message-port-close") {
         messagePorts.get(message.portId)?.disconnect();
+        return;
+      }
+
+      if (message.type === "oauth-callback-forward") {
+        const { requestId } = message;
+        Promise.resolve()
+          .then(() => parseRemoteControlOAuthCallback(message.callback))
+          .then((callback) => forwardOAuthCallback(callback))
+          .then(() => {
+            const payload: MainToRendererMessage = {
+              type: "oauth-callback-forward-result",
+              requestId,
+              ok: true,
+            };
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify(payload));
+            }
+          })
+          .catch((error) => {
+            const payload: MainToRendererMessage = {
+              type: "oauth-callback-forward-result",
+              requestId,
+              ok: false,
+              errorMessage:
+                error instanceof Error ? error.message : String(error),
+            };
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify(payload));
+            }
+          });
         return;
       }
 

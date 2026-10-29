@@ -1,0 +1,103 @@
+# Codex Web contributor instructions
+
+## Workspace
+
+- Clone or pull this repository into a folder under the machine's `git`
+  directory.
+- Never commit SSH private keys, Codex credentials, Google Cloud credentials,
+  or populated secret directories.
+- Subagents may be dispatched when parallel work is useful.
+
+## Project goal
+
+This fork follows `0xcaff/codex-web` and integrates selected behavior from
+`eladrave/codex-web`. The `dev` branch primarily targets a local Node.js runtime.
+Keep the current root upstream Desktop version and browser connection model
+when integrating older hosted changes. Ordinary installation must not read its
+Desktop version from the inherited Dockerfile.
+
+Docker and Cloud Run files are retained from eladrave for reference. They are
+not acceptance targets for local-runtime merges and may contain obsolete pins.
+Do not claim container compatibility without running the container checks below.
+
+The inherited container implementation packages the desktop client as an image.
+It must preserve the desktop application's native multi-host connection model:
+each configured SSH host is a separate Codex app-server connection managed from
+**Settings > Connections**.
+
+Do not replace that flow with a codex-web-specific remote-host protocol.
+Remote app-server traffic must continue through SSH; do not expose app-server
+directly on a public network port.
+
+## Container contract
+
+- The production image is built from `Dockerfile`.
+- The server listens on port `8080`.
+- `/data` contains persistent Electron and connection state.
+- The entrypoint keeps GitHub CLI, gcloud CLI, and global Git configuration
+  under the effective `CODEX_HOME` so the normal state snapshot preserves
+  interactive logins and preferences across instance replacement.
+- Runtime developer tools are baked into the image. Do not depend on
+  interactive `apt`, npm-global, or system pip changes surviving a restart.
+- SSH configuration and key material are mounted read-only at
+  `/run/secrets/codex-ssh`.
+- The entrypoint copies readable secret files to the runtime user's
+  `~/.ssh` with mode `0600`.
+- The runtime user is the non-root `codex` user with UID `10001`.
+- Health probes are `/__backend/healthz` and `/__backend/readyz`.
+
+Each real remote host must accept key-based SSH and have the official
+installer-managed standalone Codex installation available on the remote login
+shell's `PATH`:
+
+```bash
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+codex app-server daemon version
+```
+
+## Required validation
+
+Before publishing or deploying container changes, run:
+
+```bash
+npm ci
+npm test
+docker build --tag codex-web:local .
+npm run test:docker:multihost
+docker run --rm --entrypoint npm codex-web:local audit --omit=dev --json
+```
+
+The multi-host test creates two disposable SSH hosts and verifies that the
+production container can independently authenticate to both and start a real
+Codex app-server daemon on each.
+
+For a quick manual smoke test:
+
+```bash
+docker run --rm \
+  --name codex-web \
+  --publish 127.0.0.1:8080:8080 \
+  --volume codex-web-data:/data \
+  codex-web:local
+```
+
+Then open <http://127.0.0.1:8080>.
+
+## Deployment automation
+
+Merging or pushing `main` does not deploy production. The retained
+`.github/workflows/deploy-cloud-run.yml` workflow is a manually started Cloud
+Run rollback action only. The active VM/systemd deployment has a separate
+private operational runbook; build, promotion, state backup, acceptance, and
+rollback must follow that runbook.
+
+GitHub and operator builds use `cloudbuild.github.yaml`, which clones the exact
+public commit inside Cloud Build instead of granting GitHub access to the
+source-staging bucket. Current desktop renderer bundles require the configured
+32 GB Cloud Build worker while Prettier prepares patch targets.
+
+`.github/workflows/upstream-update.yml` checks the official desktop appcast and
+Codex CLI package, validates an updated image in Cloud Build, and opens an
+assigned PR. Keep upstream version changes isolated in those generated PRs so
+patch compatibility and deployment failures remain easy to diagnose. Merging
+the PR updates source only; production promotion is a separate operation.

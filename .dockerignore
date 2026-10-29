@@ -1,0 +1,10 @@
+.git
+.github
+node_modules
+scratch
+scratch-*
+sentry
+npm-debug.log
+Dockerfile.remote-test
+compose.test.yaml
+test

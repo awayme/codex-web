@@ -1,0 +1,32 @@
+steps:
+  - name: gcr.io/cloud-builders/git
+    args:
+      - clone
+      - --no-checkout
+      - ${_SOURCE_REPOSITORY}
+      - source
+  - name: gcr.io/cloud-builders/git
+    dir: source
+    args:
+      - checkout
+      - --detach
+      - ${_SOURCE_REVISION}
+  - name: gcr.io/cloud-builders/docker
+    dir: source
+    args:
+      - build
+      - --tag
+      - ${_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}
+
+options:
+  # Current Codex desktop renderer bundles require more than 8 GB while
+  # Prettier prepares the patch targets. Keep the production build on the
+  # smallest default-pool worker that clears that compatibility gate.
+  machineType: E2_HIGHCPU_32
+  diskSizeGb: 100
+
+timeout: 1800s

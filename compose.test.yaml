@@ -1,0 +1,36 @@
+services:
+  remote-alpha:
+    build:
+      context: .
+      dockerfile: Dockerfile.remote-test
+    environment:
+      REMOTE_MARKER: alpha
+    volumes:
+      - ${CODEX_WEB_TEST_SSH_DIR:?set CODEX_WEB_TEST_SSH_DIR}/id_ed25519.pub:/run/secrets/codex-test/id_ed25519.pub:ro
+
+  remote-beta:
+    build:
+      context: .
+      dockerfile: Dockerfile.remote-test
+    environment:
+      REMOTE_MARKER: beta
+    volumes:
+      - ${CODEX_WEB_TEST_SSH_DIR:?set CODEX_WEB_TEST_SSH_DIR}/id_ed25519.pub:/run/secrets/codex-test/id_ed25519.pub:ro
+
+  web:
+    image: ${CODEX_WEB_TEST_IMAGE:-codex-web:local}
+    depends_on:
+      - remote-alpha
+      - remote-beta
+    environment:
+      CODEX_SSH_SOURCE_DIR: /run/secrets/codex-ssh
+      CODEX_WEB_DATA_DIR: /data
+      PORT: 8080
+    ports:
+      - "127.0.0.1:${CODEX_WEB_TEST_PORT:-18214}:8080"
+    volumes:
+      - codex-web-data:/data
+      - ${CODEX_WEB_TEST_SSH_DIR:?set CODEX_WEB_TEST_SSH_DIR}:/run/secrets/codex-ssh:ro
+
+volumes:
+  codex-web-data:

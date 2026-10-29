@@ -1,3 +1,6 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { getElectronPath } from "./paths";
+
 type StubFunction = (...args: unknown[]) => unknown;
 type StubListener = (...args: unknown[]) => void;
 type StubMessagePort = {
@@ -31,15 +34,19 @@ type IpcMainEvent = {
   reply: (channel: string, ...args: unknown[]) => void;
 };
 
+const rendererContext = new AsyncLocalStorage<number>();
+
 type IpcMainBridgeState = {
   sendToRenderer?: (
     webContentsId: number,
-    message: {
-      type: "ipc-main-event";
-      channel: string;
-      args: unknown[];
-    },
-  ) => void;
+    message:
+      | {
+          type: "ipc-main-event";
+          channel: string;
+          args: unknown[];
+        }
+      | { type: "open-external"; url: string },
+  ) => boolean;
   handleRendererInvoke?: (
     channel: string,
     args: unknown[],
@@ -186,7 +193,16 @@ function createIpcMainEvent(
     frameId: 1,
     sender,
     senderFrame: sender.mainFrame,
-    ports,
+    // app-host RPC 后续通过 MessagePort 收包，仍需保留发起标签页的上下文。
+    ports: ports.map((port) => ({
+      close: () => port.close(),
+      on: (event, listener) =>
+        port.on(event, (...args) =>
+          rendererContext.run(windowId, () => listener(...args)),
+        ),
+      postMessage: (message) => port.postMessage(message),
+      start: () => port.start(),
+    })),
     reply: (channel: string, ...args: unknown[]): void => {
       sender.send(channel, ...args);
     },
@@ -222,7 +238,9 @@ function createIpcMainStub(): {
     windowId: number,
   ): void => {
     if (registeredPostMessageChannels.has(channel)) {
-      emitter.emit(channel, createIpcMainEvent(windowId, ports), message);
+      rendererContext.run(windowId, () =>
+        emitter.emit(channel, createIpcMainEvent(windowId, ports), message),
+      );
       return;
     }
     const pending = pendingPostMessages.get(channel) ?? [];
@@ -240,7 +258,7 @@ function createIpcMainStub(): {
       throw new Error(`[electron-main-stub] No ipcMain.handle for ${channel}`);
     }
     const event = createIpcMainEvent(windowId);
-    return await Promise.resolve(handler(event, ...args));
+    return await rendererContext.run(windowId, () => handler(event, ...args));
   };
 
   bridgeState.handleRendererSend = (
@@ -249,7 +267,7 @@ function createIpcMainStub(): {
     windowId: number,
   ): void => {
     const event = createIpcMainEvent(windowId);
-    emitter.emit(channel, event, ...args);
+    rendererContext.run(windowId, () => emitter.emit(channel, event, ...args));
   };
 
   return {
@@ -261,7 +279,9 @@ function createIpcMainStub(): {
         pendingPostMessages.delete(channel);
         for (const { message, ports, windowId } of pending) {
           if (!BrowserWindow.fromId(windowId)) continue;
-          emitter.emit(channel, createIpcMainEvent(windowId, ports), message);
+          rendererContext.run(windowId, () =>
+            emitter.emit(channel, createIpcMainEvent(windowId, ports), message),
+          );
         }
       }
       return result;
@@ -284,6 +304,7 @@ function createIpcMainStub(): {
 let appReady = false;
 const commandLineSwitches = new Map<string, string>();
 const commandLineArguments: string[] = [];
+const appPathOverrides = new Map<string, string>();
 
 const appBase = {
   ...createEmitterStub("app"),
@@ -310,7 +331,7 @@ const appBase = {
   },
   getPath(name: string): string {
     log("app.getPath", [name]);
-    return process.cwd();
+    return appPathOverrides.get(name) ?? getElectronPath(name);
   },
   getAppMetrics(): unknown[] {
     log("app.getAppMetrics", []);
@@ -329,6 +350,7 @@ const appBase = {
   },
   setPath(name: string, value: string): void {
     log("app.setPath", [name, value]);
+    appPathOverrides.set(name, value);
   },
   setAppUserModelId(value: string): void {
     log("app.setAppUserModelId", [value]);
@@ -414,6 +436,7 @@ class BrowserWindow {
   static focusedWindow: BrowserWindow | null = null;
   id: number;
   private destroyed = false;
+  private readyToShowEmitted = false;
   private visible = true;
   private title = "Codex";
   private bounds = { x: 0, y: 0, width: 1280, height: 820 };
@@ -422,8 +445,14 @@ class BrowserWindow {
 
   constructor(...args: unknown[]) {
     log("new BrowserWindow", args);
-    this.visible = (args[0] as { show?: boolean } | undefined)?.show !== false;
     this.id = BrowserWindow.nextId++;
+    const options = args[0];
+    this.visible = !(
+      typeof options === "object" &&
+      options !== null &&
+      "show" in options &&
+      (options as { show?: unknown }).show === false
+    );
     this.emitter = createEmitterStub(`BrowserWindow#${this.id}`);
 
     const webContentsEmitter = createEmitterStub(
@@ -447,9 +476,11 @@ class BrowserWindow {
         loadURL: async (url: string): Promise<void> => {
           log(`BrowserWindow#${this.id}.webContents.loadURL`, [url]);
           (this.webContents.mainFrame as { url: string }).url = url;
+          this.emitReadyToShow();
         },
         loadFile: async (...loadFileArgs: unknown[]): Promise<void> => {
           log(`BrowserWindow#${this.id}.webContents.loadFile`, loadFileArgs);
+          this.emitReadyToShow();
         },
         openDevTools: (...openDevToolsArgs: unknown[]): void => {
           log(
@@ -501,7 +532,7 @@ class BrowserWindow {
       },
     });
     BrowserWindow.allWindows.push(window);
-    BrowserWindow.focusedWindow = window;
+    if (this.visible) BrowserWindow.focusedWindow = window;
     return window;
   }
 
@@ -554,6 +585,19 @@ class BrowserWindow {
   async loadURL(url: string): Promise<void> {
     log(`BrowserWindow#${this.id}.loadURL`, [url]);
     (this.webContents.mainFrame as { url: string }).url = url;
+    this.emitReadyToShow();
+  }
+
+  private emitReadyToShow(): void {
+    if (this.destroyed || this.readyToShowEmitted) {
+      return;
+    }
+    this.readyToShowEmitted = true;
+    queueMicrotask(() => {
+      if (!this.destroyed) {
+        this.emitter.emit("ready-to-show");
+      }
+    });
   }
 
   close(): void {
@@ -568,6 +612,7 @@ class BrowserWindow {
     log(`BrowserWindow#${this.id}.destroy`, []);
     if (this.destroyed) return;
     this.destroyed = true;
+    this.visible = false;
     (this.webContents.emit as StubFunction)("destroyed");
     BrowserWindow.allWindows = BrowserWindow.allWindows.filter(
       (window) => window !== this,
@@ -632,12 +677,18 @@ class BrowserWindow {
 
   show(): void {
     log(`BrowserWindow#${this.id}.show`, []);
+    if (this.destroyed) return;
     this.visible = true;
+    BrowserWindow.focusedWindow = this;
+    this.emitter.emit("show");
   }
 
   hide(): void {
     log(`BrowserWindow#${this.id}.hide`, []);
     this.visible = false;
+    if (BrowserWindow.focusedWindow === this)
+      BrowserWindow.focusedWindow = null;
+    this.emitter.emit("hide");
   }
 
   focus(): void {
@@ -777,6 +828,36 @@ const dialog = {
   },
 };
 
+const shell = {
+  async openExternal(url: string): Promise<void> {
+    const parsedUrl = new URL(url);
+    if (!new Set(["http:", "https:"]).has(parsedUrl.protocol)) {
+      throw new Error(
+        `Unsupported external URL protocol: ${parsedUrl.protocol}`,
+      );
+    }
+
+    const windowId = rendererContext.getStore();
+    const window =
+      windowId === undefined
+        ? BrowserWindow.getFocusedWindow()
+        : BrowserWindow.fromId(windowId);
+    if (
+      !window ||
+      window.isDestroyed() ||
+      !getIpcMainBridgeState().sendToRenderer?.(
+        window.webContents.id as number,
+        {
+          type: "open-external",
+          url: parsedUrl.toString(),
+        },
+      )
+    ) {
+      throw new Error("No browser renderer is connected");
+    }
+  },
+};
+
 const crashReporter = {
   start(...args: unknown[]): void {
     log("crashReporter.start", args);
@@ -856,30 +937,91 @@ const powerMonitor = {
     return false;
   },
 };
-// Desktop shortcuts and sleep inhibitors have no native window in the web host.
-const globalShortcut = {
-  register(...args: unknown[]): boolean {
-    log("globalShortcut.register", args);
-    return false;
+let clipboardText = "";
+const clipboard = {
+  availableFormats(): string[] {
+    log("clipboard.availableFormats", []);
+    return clipboardText ? ["text/plain"] : [];
   },
-  isRegistered(_accelerator: string): boolean {
-    return false;
+  readBookmark(): { title: string; url: string } {
+    log("clipboard.readBookmark", []);
+    return { title: "", url: "" };
   },
-  unregister(...args: unknown[]): void {
-    log("globalShortcut.unregister", args);
+  readBuffer(format: string): Buffer {
+    log("clipboard.readBuffer", [format]);
+    return Buffer.alloc(0);
   },
-  unregisterAll(): void {},
+  readHTML(): string {
+    log("clipboard.readHTML", []);
+    return "";
+  },
+  readImage(): { isEmpty: () => boolean } {
+    log("clipboard.readImage", []);
+    return nativeImage.createEmpty();
+  },
+  readRTF(): string {
+    log("clipboard.readRTF", []);
+    return "";
+  },
+  readText(): string {
+    log("clipboard.readText", []);
+    return clipboardText;
+  },
+  write(data: unknown): void {
+    log("clipboard.write", [data]);
+  },
+  writeBuffer(format: string, buffer: Buffer): void {
+    log("clipboard.writeBuffer", [format, buffer.length]);
+  },
+  writeImage(image: unknown): void {
+    log("clipboard.writeImage", [image]);
+  },
+  writeText(value: string): void {
+    log("clipboard.writeText", [value]);
+    clipboardText = value;
+  },
 };
+const contentTracing = {
+  async startRecording(options?: unknown): Promise<void> {
+    log("contentTracing.startRecording", [options]);
+  },
+  async stopRecording(resultFilePath?: string): Promise<string> {
+    log("contentTracing.stopRecording", [resultFilePath]);
+    return resultFilePath ?? "";
+  },
+};
+const globalShortcut = {
+  isRegistered(accelerator: string): boolean {
+    log("globalShortcut.isRegistered", [accelerator]);
+    return false;
+  },
+  register(accelerator: string, callback: StubListener): boolean {
+    log("globalShortcut.register", [accelerator, callback]);
+    return false;
+  },
+  unregister(accelerator: string): void {
+    log("globalShortcut.unregister", [accelerator]);
+  },
+  unregisterAll(): void {
+    log("globalShortcut.unregisterAll", []);
+  },
+};
+let nextPowerSaveBlockerId = 1;
+const powerSaveBlockerIds = new Set<number>();
 const powerSaveBlocker = {
+  isStarted(id: number): boolean {
+    log("powerSaveBlocker.isStarted", [id]);
+    return powerSaveBlockerIds.has(id);
+  },
   start(type: string): number {
     log("powerSaveBlocker.start", [type]);
-    return 0;
+    const id = nextPowerSaveBlockerId++;
+    powerSaveBlockerIds.add(id);
+    return id;
   },
   stop(id: number): void {
     log("powerSaveBlocker.stop", [id]);
-  },
-  isStarted(_id: number): boolean {
-    return false;
+    powerSaveBlockerIds.delete(id);
   },
 };
 const screen = {
@@ -927,6 +1069,9 @@ const screen = {
       bounds: { x: 0, y: 0, width: 1440, height: 900 },
     };
   },
+};
+const systemPreferences = {
+  ...createEmitterStub("systemPreferences"),
 };
 const protocol = {
   registerSchemesAsPrivileged(...args: unknown[]): void {
@@ -1080,6 +1225,9 @@ const electronModule = new Proxy(
   {
     app,
     BrowserWindow,
+    clipboard,
+    contentTracing,
+    globalShortcut,
     ipcMain,
     autoUpdater,
     crashReporter,
@@ -1092,10 +1240,11 @@ const electronModule = new Proxy(
     Notification,
     powerMonitor,
     powerSaveBlocker,
-    globalShortcut,
     protocol,
     screen,
     session,
+    shell,
+    systemPreferences,
     Tray,
     utilityProcess,
     WebContentsView,
@@ -1117,6 +1266,9 @@ export {
   app,
   autoUpdater,
   BrowserWindow,
+  clipboard,
+  contentTracing,
+  globalShortcut,
   ipcMain,
   Menu,
   MenuItem,
@@ -1127,10 +1279,11 @@ export {
   Notification,
   powerMonitor,
   powerSaveBlocker,
-  globalShortcut,
   protocol,
   screen,
   session,
+  shell,
+  systemPreferences,
   Tray,
   utilityProcess,
   WebContentsView,
