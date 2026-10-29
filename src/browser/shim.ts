@@ -878,6 +878,14 @@ electronShim.overrideAdapter = {
       };
     }
 
+    if (evaluation.name === "3902016271") {
+      // 强制启用 Auto-review（Approve for me）。
+      return {
+        ...evaluation,
+        value: true,
+      };
+    }
+
     if (evaluation.name === "1042620455") {
       // Remote control (Slingshot).
       return {
