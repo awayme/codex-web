@@ -1,6 +1,20 @@
 #!/bin/sh
 set -eu
 
+# 支持 ./start.sh 9000；不传参数时使用 8214，原有选项继续透传。
+if [ "$#" -eq 0 ]; then
+  set -- --port 8214
+else
+  case "$1" in
+    -*) ;;
+    *)
+      LISTEN_PORT="$1"
+      shift
+      set -- --port "$LISTEN_PORT" "$@"
+      ;;
+  esac
+fi
+
 printf '%s\n' '当前本地 better-sqlite3 原生模块按 Node 25 编译，无法直接在 Node 26 下加载，因此本脚本固定使用 Node 25 启动。'
 
 NODE_BIN_DIR="/home/asym/.nvm/versions/node/v25.0.0/bin"
