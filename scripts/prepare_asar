@@ -36,6 +36,8 @@ patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-pwa
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-thread-title.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-initial-route.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-electron-shim-close-sidebar.patch
+# 网页菜单获取焦点时，元素失焦不应触发窗口失焦的取消逻辑。
+patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-context-menu-focus.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-prosemirror-inputmode.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-use-atfs-for-local-files.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-statsig-override-adapter.patch

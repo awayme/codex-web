@@ -1,0 +1,11 @@
+--- a/webview/assets/app-shared-8bd9d0399038.js
++++ b/webview/assets/app-shared-8bd9d0399038.js
+@@ -308241,7 +308241,7 @@
+                 },
+                 n,
+               ),
+-              window.addEventListener(`blur`, t, n));
++              window.addEventListener(`blur`, t, { signal: r.signal }));
+           }
+           return (
+             Promise.resolve(a)

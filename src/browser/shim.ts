@@ -1095,6 +1095,13 @@ ensureSocket();
 
 export const contextBridge = {
   exposeInMainWorld(_key: string, _api: unknown): void {
+    if (_key === "electronBridge" && isRecord(_api)) {
+      // 浏览器无法显示 Electron 原生菜单，让上游使用已有的网页菜单。
+      const browserApi = { ..._api };
+      delete browserApi.showContextMenu;
+      Reflect.set(window, _key, browserApi);
+      return;
+    }
     Reflect.set(window, _key, _api);
   },
 };
