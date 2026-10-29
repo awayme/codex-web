@@ -32,12 +32,14 @@ function errorMessage(error: unknown): string {
 
 function WorkspaceRootDialog({
   listDirectory,
+  allowMultiple = false,
+  title = "Select project folder",
   onClose,
 }: WorkspaceRootDialogOptions & {
-  onClose: (value: string | null) => void;
+  onClose: (value: string[] | null) => void;
 }): React.ReactElement {
   const [directoryPath, setDirectoryPath] = useState<string | null>(null);
-  const [userSelectedPath, setUserSelectedPath] = useState<string | null>(null);
+  const [userSelectedPaths, setUserSelectedPaths] = useState<string[]>([]);
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   const directoryQuery = useQuery({
@@ -61,8 +63,18 @@ function WorkspaceRootDialog({
     : null;
 
   function navigateTo(nextDirectoryPath: string): void {
-    setUserSelectedPath(nextDirectoryPath);
+    if (!allowMultiple) setUserSelectedPaths([nextDirectoryPath]);
     setDirectoryPath(nextDirectoryPath);
+  }
+
+  function selectPath(path: string): void {
+    setUserSelectedPaths((paths) =>
+      !allowMultiple
+        ? [path]
+        : paths.includes(path)
+          ? paths.filter((value) => value !== path)
+          : [...paths, path],
+    );
   }
 
   useEffect(() => {
@@ -77,20 +89,28 @@ function WorkspaceRootDialog({
       }
     }
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    const element = dialogRef.current;
+    element?.addEventListener("keydown", handleKeyDown);
+    return () => element?.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const selectedPath = userSelectedPath ?? directoryQuery.data?.directoryPath;
+  const selectedPath =
+    userSelectedPaths[0] ?? directoryQuery.data?.directoryPath;
+  const selectedPaths = allowMultiple
+    ? userSelectedPaths
+    : selectedPath
+      ? [selectedPath]
+      : [];
 
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    if (selectedPath && !isBusy) {
-      onClose(selectedPath);
+    if (selectedPaths.length > 0 && !isBusy && !queryError) {
+      onClose(selectedPaths);
     }
   }
 
-  const selectedPathValue = selectedPath ?? "";
+  const selectedPathValue =
+    (allowMultiple ? directoryQuery.data?.directoryPath : selectedPath) ?? "";
 
   return (
     <>
@@ -186,10 +206,10 @@ function WorkspaceRootDialog({
                     ].join(" ")}
                     id={TITLE_ID}
                   >
-                    Add remote project
+                    {title}
                   </div>
                   <div className={["sr-only"].join(" ")} id={DESCRIPTION_ID}>
-                    Choose a folder on the Codex Web host to add as a project.
+                    Choose folders on the Codex Web host.
                   </div>
                 </div>
               </div>
@@ -361,7 +381,7 @@ function WorkspaceRootDialog({
                           </div>
                         ) : (
                           entries.map((entry) => {
-                            const selected = entry.path === selectedPath;
+                            const selected = selectedPaths.includes(entry.path);
                             return (
                               <button
                                 className={[
@@ -383,9 +403,10 @@ function WorkspaceRootDialog({
                                   .filter(Boolean)
                                   .join(" ")}
                                 data-path={entry.path}
+                                aria-pressed={selected}
                                 key={entry.path}
                                 onClick={() => {
-                                  setUserSelectedPath(entry.path);
+                                  selectPath(entry.path);
                                 }}
                                 onDoubleClick={() => {
                                   navigateTo(entry.path);
@@ -394,6 +415,11 @@ function WorkspaceRootDialog({
                                 type="button"
                               >
                                 <FolderIcon />
+                                {allowMultiple && (
+                                  <span aria-hidden="true">
+                                    {selected ? "☑" : "☐"}
+                                  </span>
+                                )}
                                 <span className={["truncate"].join(" ")}>
                                   {entry.name}
                                 </span>
@@ -406,6 +432,25 @@ function WorkspaceRootDialog({
                   </div>
                 </div>
               </label>
+              {allowMultiple && (
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <button
+                    type="button"
+                    disabled={isBusy || !!queryError || !directoryQuery.data}
+                    onClick={() => {
+                      if (directoryQuery.data)
+                        selectPath(directoryQuery.data.directoryPath);
+                    }}
+                  >
+                    {selectedPaths.includes(
+                      directoryQuery.data?.directoryPath ?? "",
+                    )
+                      ? "Deselect current folder"
+                      : "Select current folder"}
+                  </button>
+                  <span>{selectedPaths.length} selected</span>
+                </div>
+              )}
             </div>
 
             <div
@@ -479,10 +524,12 @@ function WorkspaceRootDialog({
                     "text-base",
                     "leading-[18px]",
                   ].join(" ")}
-                  disabled={!selectedPath || isBusy}
+                  disabled={
+                    selectedPaths.length === 0 || isBusy || !!queryError
+                  }
                   type="submit"
                 >
-                  Add project
+                  {allowMultiple ? "Select folders" : "Select folder"}
                 </button>
               </div>
             </div>
@@ -522,20 +569,28 @@ function ensureHost(): HTMLElement {
   if (!element) {
     element = document.createElement("div");
     element.id = DIALOG_ID;
+    element.style.position = "relative";
+    element.style.zIndex = "2147483647";
+    // 避免底层项目创建弹窗把选择器交互当作外部点击或抢走焦点。
+    for (const type of ["pointerdown", "focusin", "keydown"]) {
+      element.addEventListener(type, (event) => event.stopPropagation());
+    }
     document.body.append(element);
   }
   return element;
 }
 
 type WorkspaceRootDialogOptions = {
+  allowMultiple?: boolean;
+  title?: string;
   listDirectory: (
     directoryPath: string | null,
   ) => Promise<WorkspaceDirectoryEntries>;
 };
 
-export async function openSelectWorkspaceRootDialog({
-  listDirectory,
-}: WorkspaceRootDialogOptions): Promise<string | null> {
+export async function openSelectWorkspaceRootDialog(
+  options: WorkspaceRootDialogOptions,
+): Promise<string[] | null> {
   const activeElement = document.activeElement;
 
   const queryClient = new QueryClient({
@@ -547,11 +602,11 @@ export async function openSelectWorkspaceRootDialog({
   });
 
   const { resolveFn, promise } = ((): {
-    promise: Promise<string | null>;
-    resolveFn: (target: string | null) => void;
+    promise: Promise<string[] | null>;
+    resolveFn: (target: string[] | null) => void;
   } => {
     let resolveFn = null;
-    const promise = new Promise<string | null>((resolve) => {
+    const promise = new Promise<string[] | null>((resolve) => {
       resolveFn = resolve;
     });
 
@@ -564,7 +619,7 @@ export async function openSelectWorkspaceRootDialog({
   const reactRoot = createRoot(ensureHost());
   reactRoot.render(
     <QueryClientProvider client={queryClient}>
-      <WorkspaceRootDialog listDirectory={listDirectory} onClose={resolveFn} />
+      <WorkspaceRootDialog {...options} onClose={resolveFn} />
     </QueryClientProvider>,
   );
 

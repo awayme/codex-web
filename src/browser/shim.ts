@@ -816,17 +816,6 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function isUnhandledAddWorkspaceRootOptionMessage(value: unknown): value is {
-  root?: unknown;
-  type: "electron-add-new-workspace-root-option";
-} {
-  return (
-    isRecord(value) &&
-    value.type === "electron-add-new-workspace-root-option" &&
-    typeof value.root !== "string"
-  );
-}
-
 function isOpenInBrowserMessage(value: unknown): value is {
   type: "open-in-browser";
   url: string;
@@ -852,6 +841,35 @@ function requestWorkspaceDirectoryEntries(
     });
   });
 }
+
+// 同一标签页串行显示目录选择器；主进程保留本地/远程主机的分流逻辑。
+let directoryDialogQueue = Promise.resolve();
+addIpcListener("codex-web:directory-dialog", (_event, request) => {
+  if (!isRecord(request) || typeof request.requestId !== "string") return;
+  directoryDialogQueue = directoryDialogQueue
+    .then(async () => {
+      let paths: string[] | null = null;
+      try {
+        paths = await openSelectWorkspaceRootDialog({
+          listDirectory: requestWorkspaceDirectoryEntries,
+          allowMultiple: request.allowMultiple === true,
+          title: typeof request.title === "string" ? request.title : undefined,
+        });
+      } catch (error) {
+        console.error("Failed to open directory dialog", error);
+      }
+      await invokeMain("codex-web:directory-dialog-result", [
+        request.requestId,
+        {
+          canceled: paths === null,
+          filePaths: paths ?? [],
+        },
+      ]);
+    })
+    .catch((error) =>
+      console.error("Failed to return directory selection", error),
+    );
+});
 
 const themeMediaQuery = matchMedia("(prefers-color-scheme: dark)");
 const mobileMediaQuery = matchMedia("(max-width: 768px)");
@@ -946,19 +964,6 @@ export const ipcRenderer = {
 
       if (isLocalFilePickerMessage(args[0])) {
         return handleLocalFilePickerMessage(args[0]);
-      }
-
-      if (isUnhandledAddWorkspaceRootOptionMessage(args[0])) {
-        const message = args[0];
-        return openSelectWorkspaceRootDialog({
-          listDirectory: requestWorkspaceDirectoryEntries,
-        }).then((root) => {
-          if (!root) {
-            return undefined;
-          }
-
-          return invokeMain(channel, [{ ...message, root }]);
-        });
       }
     }
 

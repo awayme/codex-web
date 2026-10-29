@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
 import { getElectronPath } from "./paths";
 
 type StubFunction = (...args: unknown[]) => unknown;
@@ -821,7 +822,62 @@ class Notification {
   }
 }
 
+type DirectoryDialogResult = { canceled: boolean; filePaths: string[] };
+const pendingDirectoryDialogs = new Map<
+  string,
+  { webContentsId: number; finish: (result: DirectoryDialogResult) => void }
+>();
+
 const dialog = {
+  async showOpenDialog(
+    windowOrOptions: BrowserWindow | { properties?: string[]; title?: string },
+    options?: { properties?: string[]; title?: string },
+  ): Promise<DirectoryDialogResult> {
+    const hasWindow = windowOrOptions instanceof BrowserWindow;
+    const settings = (hasWindow ? options : windowOrOptions) ?? {};
+    if (!settings.properties?.includes("openDirectory")) {
+      throw new Error("Only directory dialogs are supported by this bridge");
+    }
+    const windowId = rendererContext.getStore();
+    const window = hasWindow
+      ? windowOrOptions
+      : windowId === undefined
+        ? BrowserWindow.getFocusedWindow()
+        : BrowserWindow.fromId(windowId);
+    if (!window || window.isDestroyed()) {
+      throw new Error("No browser renderer is connected");
+    }
+    const contents = window.webContents as unknown as StubWebContents;
+    const webContentsId = contents.id;
+    const allowMultiple = settings.properties.includes("multiSelections");
+    const requestId = randomUUID();
+    return new Promise((resolve, reject) => {
+      const onDestroyed = () => finish({ canceled: true, filePaths: [] });
+      const finish = (result: DirectoryDialogResult) => {
+        pendingDirectoryDialogs.delete(requestId);
+        contents.removeListener("destroyed", onDestroyed);
+        resolve(result);
+      };
+      pendingDirectoryDialogs.set(requestId, { webContentsId, finish });
+      contents.on("destroyed", onDestroyed);
+      const sent = getIpcMainBridgeState().sendToRenderer?.(webContentsId, {
+        type: "ipc-main-event",
+        channel: "codex-web:directory-dialog",
+        args: [
+          {
+            requestId,
+            allowMultiple,
+            title: settings.title,
+          },
+        ],
+      });
+      if (!sent) {
+        pendingDirectoryDialogs.delete(requestId);
+        contents.removeListener("destroyed", onDestroyed);
+        reject(new Error("No browser renderer is connected"));
+      }
+    });
+  },
   async showMessageBox(...args: unknown[]): Promise<{ response: number }> {
     log("dialog.showMessageBox", args);
     return { response: 0 };
@@ -904,6 +960,27 @@ const net = {
 
 const autoUpdater = createEmitterStub("autoUpdater");
 const ipcMain = createIpcMainStub();
+ipcMain.handle(
+  "codex-web:directory-dialog-result",
+  (event, requestId, result) => {
+    if (typeof requestId !== "string") return;
+    const pending = pendingDirectoryDialogs.get(requestId);
+    // 只接受发起选择的标签页返回结果，避免多个标签页互相串用。
+    if (!pending || pending.webContentsId !== (event as IpcMainEvent).sender.id)
+      return;
+    const value = result as DirectoryDialogResult | null;
+    if (
+      !value ||
+      typeof value !== "object" ||
+      typeof value.canceled !== "boolean" ||
+      !Array.isArray(value.filePaths) ||
+      !value.filePaths.every((path: unknown) => typeof path === "string")
+    ) {
+      throw new Error("Invalid directory dialog result");
+    }
+    pending.finish(value.canceled ? { canceled: true, filePaths: [] } : value);
+  },
+);
 const nativeTheme = {
   ...createEmitterStub("nativeTheme"),
   shouldUseDarkColors: false,
