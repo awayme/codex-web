@@ -33,16 +33,19 @@ case "$NODE_VERSION" in
     ;;
 esac
 
-# 在切换 Node 环境前保留 Codex CLI 路径，优先使用显式配置。
-if [ -z "${CODEX_CLI_PATH:-}" ]; then
-  CODEX_CLI_PATH="$(command -v codex || true)"
-  if [ -z "$CODEX_CLI_PATH" ]; then
-    printf '%s\n' "Codex CLI not found. Add codex to PATH or set CODEX_CLI_PATH." >&2
-    exit 1
-  fi
-fi
+# 固定使用 Node 25 环境中的 Codex，避免启动环境选择到其他版本。
+CODEX_CLI_PATH="$NODE_BIN_DIR/codex"
 export CODEX_CLI_PATH
 export PATH="$NODE_BIN_DIR:$HOME/.local/bin:$PATH"
+
+if [ ! -x "$CODEX_CLI_PATH" ]; then
+  printf '%s\n' "Codex CLI not found or not executable: $CODEX_CLI_PATH. Install Codex in the Node 25 environment before starting." >&2
+  exit 1
+fi
+if ! "$CODEX_CLI_PATH" --version >/dev/null 2>&1; then
+  printf '%s\n' "Codex CLI failed to run in the Node 25 environment: $CODEX_CLI_PATH. Fix the installation before starting." >&2
+  exit 1
+fi
 
 # Desktop 会探测 GitHub CLI，提前检查可避免运行中因找不到 gh 而退出。
 if ! command -v gh >/dev/null 2>&1; then
