@@ -61,4 +61,13 @@ fi
 PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
+# Node 的 fetch 需显式启用环境代理；统一大小写变量，保留已有直连规则。
+export HTTP_PROXY="http://localhost:7890"
+export HTTPS_PROXY="$HTTP_PROXY"
+export http_proxy="$HTTP_PROXY"
+export https_proxy="$HTTPS_PROXY"
+export NO_PROXY="localhost,127.0.0.1,::1${NO_PROXY:+,$NO_PROXY}${no_proxy:+,$no_proxy}"
+export no_proxy="$NO_PROXY"
+export NODE_USE_ENV_PROXY=1
+
 exec "$NODE_BIN_DIR/node" src/server/main.js "$@"
