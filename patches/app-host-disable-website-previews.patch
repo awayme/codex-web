@@ -1,0 +1,11 @@
+--- a/.vite/build/main-CqEoQDOU.js
++++ b/.vite/build/main-CqEoQDOU.js
+@@ -158278,6 +158278,8 @@
+         );
+       e.once(`destroyed`, () => x[Symbol.dispose]());
+       let S = new i.pi(lYe);
++      // 禁用网页链接预览，避免调用未实现的 Electron 网络请求接口。
++      S.get = async () => ({ status: `unavailable` });
+       e.once(`destroyed`, () => S[Symbol.dispose]());
+       let w = new cHe({
+         localClient: o,

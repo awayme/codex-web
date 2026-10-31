@@ -51,6 +51,7 @@ patch --batch --forward --strip 1 --directory scratch/asar < patches/preload-dis
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-safe-header-left.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/app-host-json-rpc.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/app-host-browser-windows.patch
+patch --batch --forward --strip 1 --directory scratch/asar < patches/app-host-disable-website-previews.patch
 node scripts/enable_linux_remote_control_keys.mjs
 # 使用当前平台安装的原生模块，避免加载 macOS bundle 的二进制。
 rm -rf scratch/asar/node_modules/better-sqlite3 scratch/asar/node_modules/node-pty
